@@ -26,3 +26,6 @@ RUN pip3 install torch==${TORCH}+${CUDA} \
 
 # Build habitat-lab
 RUN cd /root/habitat-lab && pip3 install -e .
+
+# Ray rllib
+RUN pip3 install ray[rllib]
