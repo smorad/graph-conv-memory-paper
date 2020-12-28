@@ -43,7 +43,10 @@ if __name__ == '__main__':
     ray.init()
     #hab_cfg = habitat.get_config(config_paths="/root/habitat-lab/configs/tasks/pointnav.yaml")
     hab_cfg_path = "/root/habitat-lab/configs/tasks/pointnav.yaml"
-    ray_cfg = {'env_config': {'path': hab_cfg_path}}
+    ray_cfg = {'env_config': {'path': hab_cfg_path}, 
+            'num_workers': 2,
+            'num_gpus_per_worker': 2,
+            'framework': 'torch'}
     trainer = ppo.PPOTrainer(env=NavEnv, config=ray_cfg)
     while True:
         print(trainer.train())
