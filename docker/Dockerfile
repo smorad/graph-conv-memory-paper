@@ -31,4 +31,4 @@ RUN cd /root/habitat-lab && pip3 install -e .
 RUN pip3 install ray[rllib]
 
 # Copy token for gitlab clone
-RUN echo "6RJQmn5AezFsn7Nsqu7N" > /root/token && git clone https://oauth2:$(cat /root/token)@gitlab.developers.cam.ac.uk/cst/prorok-lab/vnav
+RUN echo "6RJQmn5AezFsn7Nsqu7N" > /root/token && git clone https://oauth2:$(cat /root/token)@gitlab.developers.cam.ac.uk/cst/prorok-lab/vnav /root/vnav
