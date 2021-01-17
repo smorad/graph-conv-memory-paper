@@ -47,22 +47,26 @@ class NavEnv(habitat.RLEnv):
         return 0.0
 
     def get_done(self, observations):
-        return self.habitat_env.episode_over or self.habitat_env.get_metrics()['success']
+        # TODO get_metrics() success is 0.0 for some reason?
+        return self.habitat_env.episode_over# or self.habitat_env.get_metrics()['success']
 
     def get_info(self, observations):
         return self.habitat_env.get_metrics()
 
 
 if __name__ == '__main__':
-    ray.init(dashboard_host='0.0.0.0')
+    ray.init(dashboard_host='0.0.0.0', local_mode=True)
     hab_cfg_path = "/root/habitat-lab/configs/tasks/pointnav.yaml"
     '''
     hab = NavEnv(cfg={'path': hab_cfg_path})
     import pdb; pdb.set_trace()
     '''
     ray_cfg = {'env_config': {'path': hab_cfg_path}, 
-            'num_workers': 8,
-            'num_gpus_per_worker': 0.5,
+            # For debug
+            'num_workers': 0,
+            'num_gpus': 1,
+            # For prod
+            #'num_gpus_per_worker': 0.5,
             'framework': 'torch'}
     trainer = ppo.PPOTrainer(env=NavEnv, config=ray_cfg)
     # Can access envs here: trainer.workers.local_worker().env
