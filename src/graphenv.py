@@ -55,7 +55,7 @@ class GraphNavEnv(NavEnv):
 
 if __name__ == '__main__':
     ray.init(dashboard_host='0.0.0.0', local_mode=True)
-    hab_cfg_path = "/root/habitat-lab/configs/tasks/pointnav.yaml"
+    hab_cfg_path = "/root/vnav/cfg/objectnav_mp3d.yaml" 
     ray_cfg = {'env_config': {'path': hab_cfg_path}, 
             # For debug
             'num_workers': 0,
