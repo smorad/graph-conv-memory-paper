@@ -32,3 +32,14 @@ RUN pip3 install ray[rllib]
 
 # Copy token for gitlab clone
 RUN echo "6RJQmn5AezFsn7Nsqu7N" > /root/token && git clone https://oauth2:$(cat /root/token)@gitlab.developers.cam.ac.uk/cst/prorok-lab/vnav /root/vnav
+
+# Download object-goal navigation episodes
+RUN apt install -y unzip && \
+	curl https://dl.fbaipublicfiles.com/habitat/data/datasets/objectnav/m3d/v1/objectnav_mp3d_v1.zip \
+		--output objectnav_mp3d_v1.zip \ 
+	&& mkdir -p /root/habitat-lab/data/datasets/objectnav/mp3d/v1/ \
+	&& unzip objectnav_mp3d_v1.zip -d /root/habitat-lab/data/datasets/objectnav/mp3d/v1/ \
+	&& rm objectnav_mp3d_v1.zip
+
+# Link matterport models to mounted docker volume
+RUN ln -s /root/scene_datasets /root/habitat-lab/data/
