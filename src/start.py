@@ -70,7 +70,7 @@ def main():
     render_server.start()
 
     ray.init(dashboard_host='0.0.0.0', local_mode=args.local, 
-            object_store_memory=args.object_store_mem, num_gpus=4)
+            object_store_memory=args.object_store_mem)
     trainer_class = load_class(cfg, 'trainer')
     print(f'{trainer_class.__name__}: {env_class.__name__}')
     trainer = trainer_class(env=env_class, config=cfg['ray'])
