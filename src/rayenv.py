@@ -1,4 +1,5 @@
 import os
+import argparse
 import cv2
 import multiprocessing
 import habitat
@@ -6,7 +7,7 @@ import gym, ray
 from ray.rllib.agents import ppo
 from gym.spaces import discrete
 
-from server.render import RENDER_ROOT, app
+from server.render import RENDER_ROOT
 
 
 class NavEnv(habitat.RLEnv):
@@ -29,7 +30,9 @@ class NavEnv(habitat.RLEnv):
     # Habitat override
 
     def __init__(self, cfg):
-        hab_cfg = habitat.get_config(config_paths=cfg['path'])
+        hab_cfg = habitat.get_config(config_paths=cfg['hab_cfg_path'])
+        #print(f'Ray cfg: {cfg}')
+        #print(f'Hab cfg: {hab_cfg}')
         rv = super().__init__(hab_cfg)
 
         # Patch action space since habitat actions use custom spaces for some reason
@@ -76,29 +79,3 @@ class NavEnv(habitat.RLEnv):
 
     def get_info(self, observations):
         return self.habitat_env.get_metrics()
-
-
-if __name__ == '__main__':
-    ray.init(dashboard_host='0.0.0.0', local_mode=True)
-    render_server = multiprocessing.Process(
-        target=app.run,
-        kwargs={'host': '0.0.0.0', 'debug': True, 'use_reloader': False}
-    )
-    render_server.run()
-    hab_cfg_path = "/root/habitat-lab/configs/tasks/pointnav.yaml"
-    '''
-    hab = NavEnv(cfg={'path': hab_cfg_path})
-    import pdb; pdb.set_trace()
-    '''
-    ray_cfg = {'env_config': {'path': hab_cfg_path}, 
-            # For debug
-            'num_workers': 0,
-            'num_gpus': 1,
-            # For prod
-            #'num_gpus_per_worker': 0.5,
-            'framework': 'torch'}
-    trainer = ppo.PPOTrainer(env=NavEnv, config=ray_cfg)
-    # Can access envs here: trainer.workers.local_worker().env
-    #ray.util.pdb.set_trace()
-    while True:
-        print(trainer.train())

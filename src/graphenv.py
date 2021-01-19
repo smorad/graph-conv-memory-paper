@@ -53,31 +53,3 @@ class GraphNavEnv(NavEnv):
         info = self.get_info(obs)
         self.add_node(obs, info)
         return obs
-
-
-if __name__ == '__main__':
-    render_server = multiprocessing.Process(
-        target=app.run,
-        kwargs={'host': '0.0.0.0', 'debug': True, 'use_reloader': False}
-    )
-    render_server.start()
-    OBJECT_STORE_MEM = 3e+10 # 30gb
-    # For debug, use local_mode=True
-    ray.init(
-            dashboard_host='0.0.0.0', 
-            object_store_memory=OBJECT_STORE_MEM,
-            num_cpus=4
-    )
-    hab_cfg_path = "/root/vnav/cfg/objectnav_mp3d.yaml" 
-    ray_cfg = {'env_config': {'path': hab_cfg_path}, 
-            # For debug
-            'num_workers': 1,
-            #'num_gpus': 1,
-            # For prod
-            'num_gpus_per_worker': 1,
-            'framework': 'torch'}
-    trainer = ppo.PPOTrainer(env=GraphNavEnv, config=ray_cfg)
-    # Can access envs here: trainer.workers.local_worker().env
-    #ray.util.pdb.set_trace()
-    while True:
-        print(trainer.train())

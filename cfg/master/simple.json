@@ -1,0 +1,18 @@
+{
+    "ray": {
+        "env_config": {
+            "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d.yaml"
+        }, 
+        "num_workers": 1,
+        "num_gpus_per_worker": 1,
+        "framework": "torch"
+    },
+    "env_wrapper": {
+        "module": "graphenv",
+        "class": "GraphNavEnv"
+    },
+    "trainer": {
+       "module": "ray.rllib.agents.ppo", 
+       "class": "PPOTrainer"
+    }
+}
