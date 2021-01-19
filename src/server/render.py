@@ -1,3 +1,5 @@
+import os
+import io
 from flask import Flask, render_template, Response
 from PIL import Image
 
@@ -11,7 +13,7 @@ def index():
 
 
 def get_concat_v(img_paths):
-    imgs = [Image.open(p).load() for p in image_paths] 
+    imgs = [Image.open(p) for p in img_paths] 
     dst = Image.new('RGB', (imgs[0].width, imgs[0].height  * len(imgs)))
     for i in range(len(imgs)):
         dst.paste(imgs[i], (0, imgs[0].height * i))
@@ -21,9 +23,11 @@ def gen():
     while True:
         render_dirs = [f.path for f in os.scandir(RENDER_ROOT) if f.is_dir()]
         img_paths = [f'{d}/out.jpg' for d in render_dirs if os.path.isfile(f'{d}/out.jpg')]
-        cat_imgs = get_concat_v(img_paths)
+        cat_img = get_concat_v(img_paths)
+        buf = io.BytesIO()
+        cat_img.save(buf, format='jpeg')
         yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + cat_imgs + b'\r\n')
+               b'Content-Type: image/jpeg\r\n\r\n' + buf.getvalue() + b'\r\n')
 
 @app.route('/video_feed')
 def video_feed():
