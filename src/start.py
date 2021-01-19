@@ -47,9 +47,11 @@ def load_class(cfg, key):
         cls = getattr(module, cfg[key]["class"])
     except KeyError:
         print(f'Did not find key [{key}]["class"] in cfg, ensure it is set')
+        raise
     except Exception:
         print(f'Failed to load class {cfg[key]}, ensure class '
                 'is set correctly.')
+        raise
 
     return cls
 
@@ -68,7 +70,7 @@ def main():
     render_server.start()
 
     ray.init(dashboard_host='0.0.0.0', local_mode=args.local, 
-            object_store_memory=args.object_store_mem)
+            object_store_memory=args.object_store_mem, num_gpus=4)
     trainer_class = load_class(cfg, 'trainer')
     print(f'{trainer_class.__name__}: {env_class.__name__}')
     trainer = trainer_class(env=env_class, config=cfg['ray'])

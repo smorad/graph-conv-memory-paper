@@ -31,8 +31,14 @@ class NavEnv(habitat.RLEnv):
 
     def __init__(self, cfg):
         hab_cfg = habitat.get_config(config_paths=cfg['hab_cfg_path'])
-        #print(f'Ray cfg: {cfg}')
-        #print(f'Hab cfg: {hab_cfg}')
+        # Ensure habitat only runs on the ray-allocated GPUs
+        # to prevent GPU OOMs
+        # This only works in non-local mode
+        [gpu_id] = ray.get_gpu_ids()
+        print(f'Starting habitat instance on gpu {gpu_id}')
+        hab_cfg.defrost()
+        hab_cfg.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = gpu_id
+        hab_cfg.freeze()
         rv = super().__init__(hab_cfg)
 
         # Patch action space since habitat actions use custom spaces for some reason
