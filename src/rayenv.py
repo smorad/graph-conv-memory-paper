@@ -1,3 +1,5 @@
+import os
+import multiprocessing
 import habitat
 import gym, ray
 from ray.rllib.agents import ppo
@@ -31,6 +33,9 @@ class NavEnv(habitat.RLEnv):
         # TODO: these should translate for continuous/arbitrary action distribution
         # Order: forward, stop, left, right
         self.action_space = discrete.Discrete(4)
+        # Each ray actor is a separate process
+        # so we can use PIDs to determine which actor is running
+        self.pid = os.getpid()
 
     def action_space(self):
         # TODO: these should translate for continuous/arbitrary action distribution
