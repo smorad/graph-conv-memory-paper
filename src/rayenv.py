@@ -1,9 +1,12 @@
 import os
+import cv2
 import multiprocessing
 import habitat
 import gym, ray
 from ray.rllib.agents import ppo
 from gym.spaces import discrete
+
+from server.render import RENDER_ROOT, app
 
 
 class NavEnv(habitat.RLEnv):
@@ -36,6 +39,22 @@ class NavEnv(habitat.RLEnv):
         # Each ray actor is a separate process
         # so we can use PIDs to determine which actor is running
         self.pid = os.getpid()
+        self.render_dir = f'{RENDER_ROOT}/{self.pid}'
+        os.makedirs(self.render_dir, exist_ok=True)
+
+    def emit_debug_img(self, obs):
+        img = obs['rgb']
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        tmp_impath = f'{self.render_dir}/_out.jpg'
+        impath = f'{self.render_dir}/out.jpg'
+        cv2.imwrite(tmp_impath, img)
+        # We do this so we don't accidentally load a half-written img
+        os.replace(tmp_impath, impath)
+
+    def step(self, action):
+        obs, reward, done, info = super().step(action) 
+        self.emit_debug_img(obs)
+        return obs, reward, done, info
 
     def action_space(self):
         # TODO: these should translate for continuous/arbitrary action distribution
@@ -61,6 +80,11 @@ class NavEnv(habitat.RLEnv):
 
 if __name__ == '__main__':
     ray.init(dashboard_host='0.0.0.0', local_mode=True)
+    render_server = multiprocessing.Process(
+        target=app.run,
+        kwargs={'host': '0.0.0.0', 'debug': True, 'use_reloader': False}
+    )
+    render_server.run()
     hab_cfg_path = "/root/habitat-lab/configs/tasks/pointnav.yaml"
     '''
     hab = NavEnv(cfg={'path': hab_cfg_path})

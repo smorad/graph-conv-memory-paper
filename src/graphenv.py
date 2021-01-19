@@ -1,7 +1,9 @@
+import multiprocessing
 import numpy as np
 import networkx as nx
 import ray
 from ray.rllib.agents import ppo
+from server.render import app
 
 from rayenv import NavEnv
 
@@ -56,6 +58,11 @@ class GraphNavEnv(NavEnv):
 if __name__ == '__main__':
     OBJECT_STORE_MEM = 3e+10 # 30gb
     ray.init(dashboard_host='0.0.0.0', local_mode=True, object_store_memory=OBJECT_STORE_MEM)
+    render_server = multiprocessing.Process(
+        target=app.run,
+        kwargs={'host': '0.0.0.0', 'debug': True, 'use_reloader': False}
+    )
+    render_server.run()
     hab_cfg_path = "/root/vnav/cfg/objectnav_mp3d.yaml" 
     ray_cfg = {'env_config': {'path': hab_cfg_path}, 
             # For debug
