@@ -1,4 +1,5 @@
 import os
+import time
 import glob
 import io
 from flask import Flask, render_template, Response
@@ -28,9 +29,13 @@ def concat_v_from_imgs(imgs):
 
 def concat_h_from_paths(img_paths):
     imgs = [Image.open(p) for p in img_paths] 
-    dst = Image.new('RGB', (imgs[0].width * len(imgs), max(img.height for img in imgs)))
+    dst = Image.new('RGB', (sum(img.width for img in imgs), max(img.height for img in imgs)))
     for i in range(len(imgs)):
-        dst.paste(imgs[i], (imgs[0].width * i, 0))
+        if i == 0:
+            hpos = 0
+        else:
+            hpos = sum(img.width for img in imgs[:i])
+        dst.paste(imgs[i], (hpos, 0))
     return dst
 
 def gen():
@@ -38,8 +43,9 @@ def gen():
         if not os.path.isdir(RENDER_ROOT):
             continue
         render_dirs = [f.path for f in os.scandir(RENDER_ROOT) if f.is_dir()]
-        img_paths = [glob.glob(f'{d}/*.jpg') for d in render_dirs]
-        #img_paths = [f'{d}/out.jpg' for d in render_dirs if os.path.isfile(f'{d}/out.jpg')]
+        img_paths = [sorted(glob.glob(f'{d}/*.jpg')) for d in render_dirs]
+        if not any(img_paths):
+            continue
         # Concatenate images in the same dir (rgb, graph, etc) horizontally
         # and concatenate different dirs (worker1, worker2, etc) vertically
         h_imgs = [concat_h_from_paths(d) for d in img_paths]
