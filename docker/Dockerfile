@@ -30,16 +30,24 @@ RUN cd /root/habitat-lab && pip3 install -e .
 # Ray rllib
 RUN pip3 install ray[rllib]
 
+# Install our deps; webserver for viewing observation and faster PIL
+RUN pip3 uninstall -y pillow && pip3 install flask pillow-simd
+
 # Copy token for gitlab clone
 RUN echo "6RJQmn5AezFsn7Nsqu7N" > /root/token && git clone https://oauth2:$(cat /root/token)@gitlab.developers.cam.ac.uk/cst/prorok-lab/vnav /root/vnav
 
-# Download object-goal navigation episodes
+# Download test and object-goal navigation episodes
 RUN apt install -y unzip && \
-	curl https://dl.fbaipublicfiles.com/habitat/data/datasets/objectnav/m3d/v1/objectnav_mp3d_v1.zip \
+    # test
+    curl http://dl.fbaipublicfiles.com/habitat/habitat-test-scenes.zip --output habitat-test-scenes.zip \
+    && unzip habitat-test-scenes.zip -d /root/habitat-lab \
+    # objectnav
+	&& curl https://dl.fbaipublicfiles.com/habitat/data/datasets/objectnav/m3d/v1/objectnav_mp3d_v1.zip \
 		--output objectnav_mp3d_v1.zip \ 
 	&& mkdir -p /root/habitat-lab/data/datasets/objectnav/mp3d/v1/ \
 	&& unzip objectnav_mp3d_v1.zip -d /root/habitat-lab/data/datasets/objectnav/mp3d/v1/ \
 	&& rm objectnav_mp3d_v1.zip
 
 # Link matterport models to mounted docker volume
-RUN ln -s /root/scene_datasets /root/habitat-lab/data/
+RUN ln -s /root/scene_datasets/mp3d /root/habitat-lab/data/scene_datasets
+

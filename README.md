@@ -14,7 +14,7 @@ Unfortunately CUDA is required for Habitat, so you must follow this step. Once t
 
 cd vnav
 # Build the image -- this takes a while, get yourself a coffee
-docker build docker
+docker build docker -t ray_habitat:latest
 
 # Launch a container
 # Make sure you fill out SCENE_DATASET_PATH to where you've
@@ -24,8 +24,9 @@ docker run \
     --gpus all \
     --shm-size 32g \
     -p 8265:8265 \
-    -v ${SCENE_DATASET_PATH}:/root/scene_datasets:ro \
-    -ti docker_ray-habitat:latest bash
+    -p 5000:5000 \
+    -v ${SCENE_DATASET_PATH}:/root/scene_datasets \
+    -ti ray_habitat:latest bash
 
 # Now we should be in the container
 ```
