@@ -34,11 +34,17 @@ class NavEnv(habitat.RLEnv):
         # Ensure habitat only runs on the ray-allocated GPUs
         # to prevent GPU OOMs
         # This only works in non-local mode
-        [gpu_id] = ray.get_gpu_ids()
-        print(f'Starting habitat instance on gpu {gpu_id}')
-        hab_cfg.defrost()
-        hab_cfg.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = gpu_id
-        hab_cfg.freeze()
+        gpu_id = ray.get_gpu_ids()
+        if len(gpu_id) == 1:
+            print(f'Starting habitat instance on gpu {gpu_id[0]}')
+            hab_cfg.defrost()
+            hab_cfg.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = gpu_id[0]
+            hab_cfg.freeze()
+        elif len(gpu_id) == 0:
+            print('No GPUs found but one is required.'
+            ' We are likely running in local mode, using default gpu (likely gpu0).')
+        else:
+            raise NotImplementedError('Multiple GPUs allocated, we have only tested one per worker')
         rv = super().__init__(hab_cfg)
 
         # Patch action space since habitat actions use custom spaces for some reason
