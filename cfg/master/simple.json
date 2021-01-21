@@ -3,7 +3,7 @@
         "env_config": {
             "hab_cfg_path": "/root/vnav/cfg/pointnav.yaml"
         }, 
-        "num_workers": 1,
+        "num_workers": 0,
         "num_gpus_per_worker": 1,
         "framework": "torch"
     },
