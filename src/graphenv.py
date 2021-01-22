@@ -48,8 +48,9 @@ class GraphNavEnv(NavEnv):
 
     def step(self, action):
         obs, reward, done, info = super().step(action) 
-        self.add_node_to_map(info)
-        self.emit_debug_graph(info)
+        if self.visualize >= 2:
+            self.add_node_to_map(info)
+            self.emit_debug_graph(info)
         self.add_node(obs, info)
         return obs, reward, done, info
 

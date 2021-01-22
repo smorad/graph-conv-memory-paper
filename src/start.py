@@ -11,6 +11,7 @@ def get_args():
     parser.add_argument('master_cfg', help='Path to the master .json cfg')
     parser.add_argument('--object-store-mem', help='Size of object store in bytes', default=3e+10)
     parser.add_argument('--local', action='store_true', default=False, help='Run ray in local mode')
+    parser.add_argument('--visualize', '-v', default=1, type=int, help='Visualization level, higher == more visualization == slower')
     args = parser.parse_args()
     return args
 
@@ -61,6 +62,7 @@ def main():
     cfg = load_master_cfg(args.master_cfg)
     env_class = load_class(cfg, 'env_wrapper') 
 
+    cfg['ray']['env_config']['visualize'] = args.visualize
     # Rendering obs to website for remote debugging
     shutil.rmtree(server.render.RENDER_ROOT, ignore_errors=True)
     render_server = multiprocessing.Process(

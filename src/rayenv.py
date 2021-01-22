@@ -31,6 +31,7 @@ class NavEnv(habitat.RLEnv):
     # Habitat override
 
     def __init__(self, cfg):
+        self.visualize = cfg['visualize']
         hab_cfg = habitat.get_config(config_paths=cfg['hab_cfg_path'])
         # Ensure habitat only runs on the ray-allocated GPUs
         # to prevent GPU OOMs
@@ -52,7 +53,7 @@ class NavEnv(habitat.RLEnv):
         # Patch action space since habitat actions use custom spaces for some reason
         # TODO: these should translate for continuous/arbitrary action distribution
         # Order: forward, stop, left, right
-        self.action_space = discrete.Discrete(3)
+        self.action_space = discrete.Discrete(4)
         # Each ray actor is a separate process
         # so we can use PIDs to determine which actor is running
         self.pid = os.getpid()
@@ -83,14 +84,16 @@ class NavEnv(habitat.RLEnv):
 
     def step(self, action):
         obs, reward, done, info = super().step(action) 
-        self.emit_debug_img(obs)
-        self.emit_debug_map(info)
+        if self.visualize >= 1:
+            self.emit_debug_img(obs)
+        if self.visualize >= 2:
+            self.emit_debug_map(info)
         return obs, reward, done, info
 
     def action_space(self):
         # TODO: these should translate for continuous/arbitrary action distribution
         # Order: forward, stop, left, right
-        return discrete.Discrete(3)
+        return discrete.Discrete(4)
 
     # Habitat iface that we impl
     def get_reward_range(self):
