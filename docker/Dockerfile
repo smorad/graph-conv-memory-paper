@@ -30,6 +30,9 @@ RUN cd /root/habitat-lab && pip3 install -e .
 # Ray rllib
 RUN pip3 install ray[rllib]
 
+# Detectron
+RUN pip3 install 'git+https://github.com/facebookresearch/detectron2.git'
+
 # Install our deps; webserver for viewing observation and faster PIL
 RUN pip3 uninstall -y pillow && pip3 install flask pillow-simd
 
