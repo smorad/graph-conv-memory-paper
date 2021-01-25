@@ -5,7 +5,10 @@
         }, 
         "num_workers": 0,
         "num_gpus_per_worker": 1,
-        "framework": "torch"
+        "framework": "torch",
+        "model": {
+            "framestack": false
+        }
     },
     "env_wrapper": {
         "module": "graphenv",
