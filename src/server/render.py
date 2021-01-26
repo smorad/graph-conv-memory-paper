@@ -3,31 +3,66 @@ import time
 import glob
 import io
 from flask import Flask, render_template, Response
+from flask_socketio import SocketIO, emit
 from PIL import Image
+from pathlib import Path
+from typing import List 
+import numpy as np
+
+
+# The render server exists to serve images written to /dev/shm
+# by workers over a web interface for debugging purposes
 
 app = Flask(__name__)
+socketio = SocketIO(app, logger=True)
 
 RENDER_ROOT = '/dev/shm/render/'
+CLIENT_LOCK = Path(f'{RENDER_ROOT}/client_conn.lock')
+conn_clients = 0
 
+
+# SocketIO functions use a lock file for a web client connection
+# This ensures we are not wasting cycles producing images if there
+# are no viewers
+@socketio.on("connect", namespace="/")
+def connect() -> None:
+    global conn_clients
+    print(f'Client connected, clients: {conn_clients}')
+    conn_clients += 1
+    if conn_clients >= 0:
+        print('Enabling visualization')
+        CLIENT_LOCK.touch()
+    socketio.emit('my response', {'data': 'Connected'})
+
+@socketio.on("disconnect", namespace="/")
+def disconnect() -> None:
+    global conn_clients
+    print(f'Client disconnected, clients: {conn_clients}')
+    conn_clients -= 1
+    if conn_clients <= 0:
+        print('Disabling visualization')
+        CLIENT_LOCK.unlink(missing_ok=True)
+    socketio.emit('my response', {'data': 'Disconnected'})
+
+# Default load page
 @app.route('/')
 def index():
     return render_template('index.html')
 
-
-def concat_v_from_paths(img_paths):
+def concat_v_from_paths(img_paths: List[str]) -> np.ndarray:
     imgs = [Image.open(p) for p in img_paths] 
     dst = Image.new('RGB', (imgs[0].width, imgs[0].height  * len(imgs)))
     for i in range(len(imgs)):
         dst.paste(imgs[i], (0, imgs[0].height * i))
     return dst
 
-def concat_v_from_imgs(imgs):
+def concat_v_from_imgs(imgs: List[np.ndarray]) -> np.ndarray:
     dst = Image.new('RGB', (imgs[0].width, imgs[0].height  * len(imgs)))
     for i in range(len(imgs)):
         dst.paste(imgs[i], (0, imgs[0].height * i))
     return dst
 
-def concat_h_from_paths(img_paths):
+def concat_h_from_paths(img_paths: List[str]) -> np.ndarray:
     imgs = [Image.open(p) for p in img_paths] 
     dst = Image.new('RGB', (sum(img.width for img in imgs), max(img.height for img in imgs)))
     for i in range(len(imgs)):
@@ -38,7 +73,7 @@ def concat_h_from_paths(img_paths):
         dst.paste(imgs[i], (hpos, 0))
     return dst
 
-def gen():
+def gen() -> str:
     while True:
         if not os.path.isdir(RENDER_ROOT):
             continue

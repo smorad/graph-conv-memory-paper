@@ -1,5 +1,12 @@
 <html>
   <head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/3.0.1/socket.io.min.js"></script>
+    <script type="text/javascript" charset="utf-8">
+	var socket = io();
+	socket.on('connect', function() {
+	    socket.emit('my event', {data: 'I\'m connected!'});
+	});
+    </script>
     <title>Video Streaming Demonstration</title>
   </head>
   <body>
