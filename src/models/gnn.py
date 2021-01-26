@@ -8,7 +8,8 @@ class EgoGNNModel(MessagePassing):
     The model takes as input a euclidean graph. Each node contains a pose relative to
     the current pose and the observation from said pose.
 
-    The output of the model is a distribution for a continuous action (angle, magnitude).
+    The output of the model is logits for discrete actions, and logit for creating
+    a node from the current observation
     """
 
     def __init__(self, F_in, F_out):
