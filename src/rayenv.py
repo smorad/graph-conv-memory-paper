@@ -121,8 +121,6 @@ class NavEnv(habitat.RLEnv):
                 img = maps.colorize_draw_agent_and_fit_to_height(
                     img, self.hab_cfg.SIMULATOR.RGB_SENSOR.WIDTH                
                 )
-            else:
-                break
 
             tmp_impath = f'{self.render_dir}/{key}.jpg.buf'
             impath = f'{self.render_dir}/{key}.jpg'

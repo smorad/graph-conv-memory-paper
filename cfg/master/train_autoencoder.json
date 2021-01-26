@@ -16,8 +16,8 @@
         "class": "NavEnv"
     },
     "trainer": {
-       "module": "ray.rllib.agents.ppo", 
-       "class": "PPOTrainer"
+       "module": "ray.rllib.agents.impala", 
+       "class": "ImpalaTrainer"
     },
     "max_epochs": 10
 }

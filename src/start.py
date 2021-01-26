@@ -6,6 +6,7 @@ import shutil
 import ray
 import server.render
 import habitat
+import os
 from habitat_baselines.utils.env_utils import make_env_fn
 
 
@@ -131,6 +132,7 @@ def main():
     cfg['ray']['env_config']['visualize'] = args.visualize
     # Rendering obs to website for remote debugging
     shutil.rmtree(server.render.RENDER_ROOT, ignore_errors=True)
+    os.makedirs(server.render.RENDER_ROOT, exist_ok=True)
     render_server = multiprocessing.Process(
         target=server.render.socketio.run,
         kwargs={'app': server.render.app, 'host': '0.0.0.0', 'debug': True, 'use_reloader': False}
