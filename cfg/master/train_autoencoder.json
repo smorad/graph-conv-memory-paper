@@ -3,7 +3,7 @@
         "env_config": {
             "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_train_autoencoder.yaml"
         }, 
-        "num_workers": 0,
+        "num_workers": 2,
         "num_gpus_per_worker": 1,
         "framework": "torch",
         "model": {

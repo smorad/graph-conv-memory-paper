@@ -5,6 +5,9 @@ import json
 import shutil
 import ray
 import server.render
+import habitat
+from habitat_baselines.utils.env_utils import make_env_fn
+
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -58,9 +61,35 @@ def load_class(cfg, key):
     return cls
 
 
+def mk_env_fn(cfg, cls):
+    return cls(cfg)
+
 def train(args, cfg):
     ray.init(dashboard_host='0.0.0.0', local_mode=args.local, 
             object_store_memory=args.object_store_mem)
+
+    env_class = load_class(cfg, 'env_wrapper')
+    envs = [env_class(cfg['ray']['env_config']) for _ in range(2)]
+    env_classes = [env_class] * 2
+    configs = [cfg['ray']['env_config']] * 2
+
+    '''
+    vec_env = habitat.VectorEnv(
+        make_env_fn=mk_env_fn,
+        env_fn_args=tuple(zip(configs, env_classes)),
+        auto_reset_done=False
+    )
+    '''
+    from ray.tune.registry import register_env
+    from rayenv import ExternalNavEnv
+    register_env("bork", lambda _: ExternalNavEnv(envs[0]))
+    register_env("bork1", lambda _: ExternalNavEnv(envs[1]))
+
+    trainer_class = load_class(cfg, 'trainer')
+    trainer = trainer_class(env="bork", config=cfg['ray'])
+    trainer = trainer_class(env="bork1", config=cfg['ray'])
+    trainer.train()
+
     '''
     env_class = load_class(cfg, 'env_wrapper') 
     trainer_class = load_class(cfg, 'trainer')

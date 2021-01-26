@@ -14,8 +14,8 @@ from server.render import RENDER_ROOT, CLIENT_LOCK
 
 
 class ExternalNavEnv(ExternalEnv):
-    def __init__(self, hab_env):
-        self.env = hab_env
+    def __init__(self, hab_vec_env):
+        self.env = hab_vec_env
         super().__init__(
                 action_space=self.env.action_space,
                 observation_space=self.env.observation_space
@@ -90,7 +90,7 @@ class NavEnv(habitat.RLEnv):
         self.hab_cfg = habitat.get_config(config_paths=cfg['hab_cfg_path'])
         #self.load_sem_sensor()
         #self.load_mesh_sem_sensor()
-        self.set_gpu_id()
+        #self.set_gpu_id()
         super().__init__(self.hab_cfg)
         # Patch action space since habitat actions use custom spaces for some reason
         # TODO: these should translate for continuous/arbitrary action distribution
