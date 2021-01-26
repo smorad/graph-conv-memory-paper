@@ -9,7 +9,7 @@
         "model": {
             "framestack": false
         },
-        "output": "/root/vnav/data/rgbd_480p"
+        "output": "/root/vnav/data/rgbd_320p"
     },
     "env_wrapper": {
         "module": "rayenv",

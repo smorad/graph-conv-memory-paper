@@ -48,10 +48,12 @@ class GraphNavEnv(NavEnv):
 
     def step(self, action):
         obs, reward, done, info = super().step(action) 
-        if self.visualize >= 2:
-            self.add_node_to_map(info)
-            self.emit_debug_graph(info)
-        self.add_node(obs, info)
+        # Only visualize if someone is viewing via webbrowser
+        if CLIENT_LOCK.exists():
+            if self.visualize >= 2 and obs.get('top_down_map') is not None:
+                self.add_node_to_map(info)
+                self.emit_debug_graph(info)
+            self.add_node(obs, info)
         return obs, reward, done, info
 
     def add_node_to_map(self, info):

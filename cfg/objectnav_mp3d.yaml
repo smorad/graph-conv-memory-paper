@@ -6,7 +6,7 @@ SIMULATOR:
   TILT_ANGLE: 30
   ACTION_SPACE_CONFIG: "v1"
   AGENT_0:
-    SENSORS: ['RGB_SENSOR', 'DEPTH_SENSOR']
+    SENSORS: ['SEMANTIC_SENSOR', 'DEPTH_SENSOR']
     HEIGHT: 0.88
     RADIUS: 0.18
   HABITAT_SIM_V0:
@@ -46,6 +46,6 @@ TASK:
 
 DATASET:
   TYPE: ObjectNav-v1
-  SPLIT: train
+  SPLIT: val_mini
   DATA_PATH: "/root/habitat-lab/data/datasets/objectnav/mp3d/v1/{split}/{split}.json.gz"
   SCENES_DIR: "/root/habitat-lab/data/scene_datasets/"

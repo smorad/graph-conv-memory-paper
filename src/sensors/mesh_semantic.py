@@ -2,10 +2,9 @@ import habitat
 import numpy as np
 from gym import spaces
 import habitat_sim
-from habitat.core.simulator import SemanticSensor, VisualObservation, Sensor
+#from habitat.core.simulator import SemanticSensor, VisualObservation, Sensor
 from typing import List, Any, Union, Optional, cast, Dict
 
-@habitat.registry.register_sensor
 class SemanticMaskSensor(SemanticSensor):
     sim_sensor_type: habitat_sim.SensorType
 
