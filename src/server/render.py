@@ -8,18 +8,19 @@ from PIL import Image
 from pathlib import Path
 from typing import List 
 import numpy as np
+import logging
 
 
 # The render server exists to serve images written to /dev/shm
 # by workers over a web interface for debugging purposes
 
-app = Flask(__name__)
-socketio = SocketIO(app, logger=True)
 
 RENDER_ROOT = '/dev/shm/render/'
 CLIENT_LOCK = Path(f'{RENDER_ROOT}/client_conn.lock')
 conn_clients = 0
 
+app = Flask(__name__)
+socketio = SocketIO(app)
 
 # SocketIO functions use a lock file for a web client connection
 # This ensures we are not wasting cycles producing images if there
@@ -93,5 +94,11 @@ def video_feed():
     return Response(gen(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
-if __name__ == '__main__':
+def main():
+    logging.getLogger('socketio').setLevel(logging.ERROR)
+    logging.getLogger('engineio').setLevel(logging.ERROR)
+    logging.getLogger('werkzeug').setLevel(logging.ERROR)
     socketio.run(app, host='0.0.0.0', debug=True, use_reloader=False)
+
+if __name__ == '__main__':
+    main()

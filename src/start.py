@@ -62,9 +62,6 @@ def load_class(cfg, key):
     return cls
 
 
-def mk_env_fn(cfg, cls):
-    return cls(cfg)
-
 def train(args, cfg):
     ray.init(dashboard_host='0.0.0.0', local_mode=args.local, 
             object_store_memory=args.object_store_mem)
@@ -110,8 +107,7 @@ def main():
     shutil.rmtree(server.render.RENDER_ROOT, ignore_errors=True)
     os.makedirs(server.render.RENDER_ROOT, exist_ok=True)
     render_server = multiprocessing.Process(
-        target=server.render.socketio.run,
-        kwargs={'app': server.render.app, 'host': '0.0.0.0', 'debug': True, 'use_reloader': False}
+        target=server.render.main,
     )
     render_server.start()
 
