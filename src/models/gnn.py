@@ -13,7 +13,7 @@ class EgoGNNModel(MessagePassing):
     """
 
     def __init__(self, F_in, F_out):
-        super(EdgeConv, self).__init__(aggr='max')  # "Max" aggregation.
+        super(EdgeConv, self).__init__(aggr="max")  # "Max" aggregation.
         self.mlp = Sequential(Linear(2 * F_in, F_out), ReLU(), Linear(F_out, F_out))
 
     def forward(self, x, edge_index):

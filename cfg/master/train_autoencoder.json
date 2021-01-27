@@ -4,7 +4,7 @@
             "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_train_autoencoder.yaml",
             "preprocessor": {
                 "module": "preprocessors.autoencoder",
-                "class": "EncoderPP"
+                "class": "AutoEncoderPP"
             }
         }, 
         "num_workers": 0,

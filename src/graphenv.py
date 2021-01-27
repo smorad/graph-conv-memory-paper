@@ -20,59 +20,64 @@ class GraphNavEnv(NavEnv):
     max_edge_dist = 0.3
 
     def add_node(self, obs, info):
-        '''Add a node using the current agent position
-        and observation'''
+        """Add a node using the current agent position
+        and observation"""
         edges = []
         for n_idx in self.graph.nodes():
-            cmp_data = self.graph.nodes[n_idx]['data']
-            if np.linalg.norm(cmp_data['pose']['r'] - info['pose2d']['r']) < self.max_edge_dist:
+            cmp_data = self.graph.nodes[n_idx]["data"]
+            if (
+                np.linalg.norm(cmp_data["pose"]["r"] - info["pose2d"]["r"])
+                < self.max_edge_dist
+            ):
                 edges += [(self.node_ctr, n_idx)]
 
-        if info['top_down_map']:
-            map_pose = info['top_down_map']["agent_map_coord"]
-            map_angle = info['top_down_map']["agent_angle"]
+        if info["top_down_map"]:
+            map_pose = info["top_down_map"]["agent_map_coord"]
+            map_angle = info["top_down_map"]["agent_angle"]
         else:
             map_pose = None
             map_angle = None
 
         node_data = {
-            'pose': info['pose2d'], 
-            'obs': obs,
+            "pose": info["pose2d"],
+            "obs": obs,
             # pose tfed for visualization}
-            'map_pose': map_pose,
-            'map_angle': map_angle,
+            "map_pose": map_pose,
+            "map_angle": map_angle,
         }
         self.graph.add_node(self.node_ctr, data=node_data)
         self.graph.add_edges_from(edges)
         self.node_ctr += 1
 
     def step(self, action):
-        obs, reward, done, info = super().step(action) 
+        obs, reward, done, info = super().step(action)
         # Only visualize if someone is viewing via webbrowser
         if CLIENT_LOCK.exists():
-            if self.visualize >= 2 and obs.get('top_down_map') is not None:
+            if self.visualize >= 2 and obs.get("top_down_map") is not None:
                 self.add_node_to_map(info)
                 self.emit_debug_graph(info)
             self.add_node(obs, info)
         return obs, reward, done, info
 
     def add_node_to_map(self, info):
-        '''Draw current position as a node to the node_map'''
+        """Draw current position as a node to the node_map"""
         if self.node_map is None:
             self.node_map = maps.colorize_topdown_map(
-            info['top_down_map']['map'],
-        )
+                info["top_down_map"]["map"],
+            )
 
-        if not info['top_down_map']:
+        if not info["top_down_map"]:
             return
 
-        #node_img = np.ones((20,20,3)) * (255,255,255) // 2
-        #node_img = cv2.circle(node_img, (10,10), radius=10, color=(0,69,255), thickness=-1)
-        pose = info['top_down_map']["agent_map_coord"]
-        angle = info['top_down_map']["agent_angle"]
+        # node_img = np.ones((20,20,3)) * (255,255,255) // 2
+        # node_img = cv2.circle(node_img, (10,10), radius=10, color=(0,69,255), thickness=-1)
+        pose = info["top_down_map"]["agent_map_coord"]
+        angle = info["top_down_map"]["agent_angle"]
         cv_pose = (pose[1], pose[0])
-        self.node_map = cv2.circle(self.node_map, cv_pose, radius=10, color=(0,69,255), thickness=3)
-        #utils.paste_overlapping_image(self.node_map, node_img, pose)
+        self.node_map = cv2.circle(
+            self.node_map, cv_pose, radius=10, color=(0, 69, 255), thickness=3
+        )
+        # utils.paste_overlapping_image(self.node_map, node_img, pose)
 
     def emit_debug_graph(self, info):
         img = self.node_map.copy()
@@ -91,26 +96,25 @@ class GraphNavEnv(NavEnv):
             interpolation=cv2.INTER_CUBIC,
         )
 
-        tmp_impath = f'{self.render_dir}/graph.jpg.buf'
-        impath = f'{self.render_dir}/graph.jpg'
+        tmp_impath = f"{self.render_dir}/graph.jpg.buf"
+        impath = f"{self.render_dir}/graph.jpg"
         _, buf = cv2.imencode(".jpg", img)
         buf.tofile(tmp_impath)
         # We do this so we don't accidentally load a half-written img
         os.replace(tmp_impath, impath)
 
-
     def get_info(self, obs):
         info = super().get_info(obs)
         agent_state = self._env.sim.agents[0].state
-        pose3d = {'r': agent_state.position, 'q': agent_state.rotation}
-        info['pose3d'] = pose3d
+        pose3d = {"r": agent_state.position, "q": agent_state.rotation}
+        info["pose3d"] = pose3d
         # In habitat, y is up vector
-        info['pose2d'] = {
-            'r': np.array((agent_state.position[0], agent_state.position[2])),
-            'theta': agent_state.rotation.copy()
+        info["pose2d"] = {
+            "r": np.array((agent_state.position[0], agent_state.position[2])),
+            "theta": agent_state.rotation.copy(),
         }
         return info
-        
+
     def reset(self):
         obs = super().reset()
         # Per-episode graph, place root node

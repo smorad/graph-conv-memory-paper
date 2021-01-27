@@ -5,6 +5,7 @@ import habitat_sim
 from habitat_baselines.common.obs_transformers import ObservationTransformer
 from typing import List, Any, Union, Optional, cast, Dict
 
+
 class SemanticMask(ObservationTransformer):
     def __init__(self, sim, num_cats=42):
         self.num_cats = 42
@@ -12,28 +13,25 @@ class SemanticMask(ObservationTransformer):
         super().__init__()
 
     def transform_observation_space(self, obs_space):
-        if 'semantic' not in obs_space.spaces:
+        if "semantic" not in obs_space.spaces:
             return obs_space
 
-        self.shape = (self.num_cats, *obs_space['semantic'].shape)
-        obs_space.spaces['semantic'] = spaces.Box(
-            low=0,
-            high=1,
-            shape=self.shape,
-            dtype=np.uint32
+        self.shape = (self.num_cats, *obs_space["semantic"].shape)
+        obs_space.spaces["semantic"] = spaces.Box(
+            low=0, high=1, shape=self.shape, dtype=np.uint32
         )
         return obs_space
 
     def forward(self, obs):
-        if 'semantic' not in obs:
+        if "semantic" not in obs:
             return obs
 
         layers = np.zeros(self.shape, dtype=np.uint32)
         # 1 channel, pixel == instance_id => n channel, channel == obj_id, pixel == 1
         for inst_id, obj_id in self.sim.semantic_label_lookup.items():
-            idxs = np.where(obs['semantic'].flat == inst_id)
+            idxs = np.where(obs["semantic"].flat == inst_id)
             layers[obj_id].flat[idxs] = 1
-        obs['semantic'] = layers
+        obs["semantic"] = layers
         return obs
 
     def from_config(cls, config):

@@ -3,10 +3,12 @@ import numpy as np
 import networkx as nx
 from typing import Type
 
+
 class ObsNode:
     # Each node holds an observation
     def __init__(self, obs):
         self.obs = obs
+
 
 class PoseEdge:
     # Each edge holds a 6DOF transform
@@ -17,8 +19,10 @@ class PoseEdge:
 
 class PoseGraph(nx.Graph):
     id_ctr = 0
+
     def __init__(self):
         # Init world frame
+        pass
 
     def add_node(self, node, **attr):
         node.id = self.id_ctr
@@ -30,6 +34,3 @@ class PoseGraph(nx.Graph):
             n.id = self.id_ctr
             self.id_ctr += 1
         return super().add_nodes_from(nodes_for_adding, attr)
-        
-
-

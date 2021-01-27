@@ -8,8 +8,7 @@ def load_class(cfg, key):
         print(f'Did not find key [{key}]["module"] in cfg, ensure it is set')
         raise
     except Exception:
-        print(f'Failed to load module {cfg[key]}, ensure'
-                ' module is set correctly.' )
+        print(f"Failed to load module {cfg[key]}, ensure" " module is set correctly.")
         raise
 
     try:
@@ -18,8 +17,7 @@ def load_class(cfg, key):
         print(f'Did not find key [{key}]["class"] in cfg, ensure it is set')
         raise
     except Exception:
-        print(f'Failed to load class {cfg[key]}, ensure class '
-                'is set correctly.')
+        print(f"Failed to load class {cfg[key]}, ensure class " "is set correctly.")
         raise
 
     return cls

@@ -23,8 +23,8 @@ import util
 
 class NavEnv(habitat.RLEnv):
     def __init__(self, cfg):
-        self.visualize = cfg['visualize']
-        self.hab_cfg = habitat.get_config(config_paths=cfg['hab_cfg_path'])
+        self.visualize = cfg["visualize"]
+        self.hab_cfg = habitat.get_config(config_paths=cfg["hab_cfg_path"])
         # TODO: Set different random seeds for different workers (based on pid maybe)
         super().__init__(self.hab_cfg)
 
@@ -32,7 +32,7 @@ class NavEnv(habitat.RLEnv):
         # so we can use PIDs to determine which actor is running
         self.pid = os.getpid()
         # Setup debug rendering
-        self.render_dir = f'{RENDER_ROOT}/{self.pid}'
+        self.render_dir = f"{RENDER_ROOT}/{self.pid}"
         os.makedirs(self.render_dir, exist_ok=True)
         # Patch action space since habitat actions use custom spaces for some reason
         # TODO: these should translate for continuous/arbitrary action distribution
@@ -41,74 +41,75 @@ class NavEnv(habitat.RLEnv):
         # adding new sensors
         # TODO: SemanticMask adds takes startup time from 20s to 160s
         # and OOMs gpus. Likely due to atari preprocessor
-        self.preprocessor = util.load_class(cfg, 'preprocessor')
+        self.preprocessor = util.load_class(cfg, "preprocessor")
         self.obs_tf = [SemanticMask(self._env.sim), GhostRGB(), self.preprocessor()]
         self.observation_space = obs_transformers.apply_obs_transforms_obs_space(
-                self.observation_space, self.obs_tf)
+            self.observation_space, self.obs_tf
+        )
 
     def emit_debug_imgs(self, obs, info, keys=[]):
-        '''Emit debug images to be served over the browser'''
+        """Emit debug images to be served over the browser"""
         for key in keys:
             img = obs.get(key, None)
             if img is None:
                 img = info.get(key, None)
             if img is None:
-                continue 
+                continue
 
-            if key == 'depth':
+            if key == "depth":
                 img = (img * 255).astype(np.uint8)
-            elif key == 'rgb':
+            elif key == "rgb":
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            elif key == 'top_down_map':
+            elif key == "top_down_map":
                 img = maps.colorize_draw_agent_and_fit_to_height(
-                    img, self.hab_cfg.SIMULATOR.RGB_SENSOR.WIDTH                
+                    img, self.hab_cfg.SIMULATOR.RGB_SENSOR.WIDTH
                 )
-            elif key == 'semantic':
+            elif key == "semantic":
                 sem = self.convert_sem_obs(obs)
                 # This needs to be really fast
-                img = np.ones((*sem.shape,3), dtype=np.uint8)
+                img = np.ones((*sem.shape, 3), dtype=np.uint8)
                 norm = 255 // 40
-                min_px = 20 # so things aren't too dark
+                min_px = 20  # so things aren't too dark
                 # for each channel
-                img[:,:,0] = min_px + sem * norm % 255
-                img[:,:,1] = min_px + sem * norm % 170
-                img[:,:,2] = min_px + sem * norm % 85
+                img[:, :, 0] = min_px + sem * norm % 255
+                img[:, :, 1] = min_px + sem * norm % 170
+                img[:, :, 2] = min_px + sem * norm % 85
             else:
                 continue
 
-            tmp_impath = f'{self.render_dir}/{key}.jpg.buf'
-            impath = f'{self.render_dir}/{key}.jpg'
+            tmp_impath = f"{self.render_dir}/{key}.jpg.buf"
+            impath = f"{self.render_dir}/{key}.jpg"
             _, buf = cv2.imencode(".jpg", img)
             buf.tofile(tmp_impath)
             # We do this so we don't accidentally load a half-written img
             os.replace(tmp_impath, impath)
-            
+
     def convert_sem_obs(self, obs):
-        '''Convert the habitat semantic observation from
-        instance IDs to category IDs'''
+        """Convert the habitat semantic observation from
+        instance IDs to category IDs"""
         # TODO: Paralellize this using worker pools
-        if not 'semantic' in obs:
+        if not "semantic" in obs:
             return
-        sem = obs['semantic'].copy()
+        sem = obs["semantic"].copy()
         for i in range(len(sem.flat)):
             sem.flat[i] = self._env.sim.semantic_label_lookup[sem.flat[i]]
         return sem
 
     def step(self, action):
-        obs, reward, done, info = super().step(action) 
+        obs, reward, done, info = super().step(action)
         # Only visualize if someone is viewing via webbrowser
         viz = []
         if CLIENT_LOCK.exists():
             if self.visualize >= 1:
-                viz += ['rgb', 'semantic', 'depth']
-            if self.visualize >= 2: 
-                viz += ['top_down_map']
+                viz += ["rgb", "semantic", "depth"]
+            if self.visualize >= 2:
+                viz += ["top_down_map"]
         self.emit_debug_imgs(obs, info, viz)
 
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
         # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
         # order matters
-        obs = OrderedDict((k,obs[k]) for k in self.observation_space.spaces)
+        obs = OrderedDict((k, obs[k]) for k in self.observation_space.spaces)
         return obs, reward, done, info
 
     # Habitat iface that we impl
@@ -116,12 +117,14 @@ class NavEnv(habitat.RLEnv):
         return [0, 1.0]
 
     def get_reward(self, observations):
-        if self.habitat_env.get_metrics()['success']:
+        if self.habitat_env.get_metrics()["success"]:
             return 1.0
         return 0.0
 
     def get_done(self, observations):
-        return self.habitat_env.episode_over or self.habitat_env.get_metrics()['success']
+        return (
+            self.habitat_env.episode_over or self.habitat_env.get_metrics()["success"]
+        )
 
     def get_info(self, observations):
         return self.habitat_env.get_metrics()
@@ -133,9 +136,10 @@ class NavEnv(habitat.RLEnv):
             # See https://github.com/niessner/Matterport/blob/master/metadata/mpcat40.tsv
             # for human-readable mapping
             self._env.sim.semantic_label_lookup = {
-                int(obj.id.split("_")[-1]): obj.category.index() for obj in scene.objects
+                int(obj.id.split("_")[-1]): obj.category.index()
+                for obj in scene.objects
             }
-            #TODO: We can't have negative numbers
+            # TODO: We can't have negative numbers
             # find out what -1 actually means
             self._env.sim.semantic_label_lookup[-1] = 0
         except NameError:
@@ -147,7 +151,5 @@ class NavEnv(habitat.RLEnv):
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
         # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
         # order matters
-        obs = OrderedDict((k,obs[k]) for k in self.observation_space.spaces)
+        obs = OrderedDict((k, obs[k]) for k in self.observation_space.spaces)
         return obs
-
-
