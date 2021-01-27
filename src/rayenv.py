@@ -48,7 +48,6 @@ class NavEnv(habitat.RLEnv):
 
     def emit_debug_imgs(self, obs, info, keys=[]):
         '''Emit debug images to be served over the browser'''
-        #import pdb; pdb.set_trace()
         for key in keys:
             img = obs.get(key, None)
             if img is None:
@@ -57,13 +56,23 @@ class NavEnv(habitat.RLEnv):
                 continue 
 
             if key == 'depth':
-                img = img.astype(np.uint8) * 255
+                img = (img * 255).astype(np.uint8)
             elif key == 'rgb':
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             elif key == 'top_down_map':
                 img = maps.colorize_draw_agent_and_fit_to_height(
                     img, self.hab_cfg.SIMULATOR.RGB_SENSOR.WIDTH                
                 )
+            elif key == 'semantic':
+                sem = self.convert_sem_obs(obs)
+                # This needs to be really fast
+                img = np.ones((*sem.shape,3), dtype=np.uint8)
+                norm = 255 // 40
+                min_px = 20 # so things aren't too dark
+                # for each channel
+                img[:,:,0] = min_px + sem * norm % 255
+                img[:,:,1] = min_px + sem * norm % 170
+                img[:,:,2] = min_px + sem * norm % 85
             else:
                 continue
 
@@ -74,62 +83,16 @@ class NavEnv(habitat.RLEnv):
             # We do this so we don't accidentally load a half-written img
             os.replace(tmp_impath, impath)
             
-    def emit_debug_depth(self, obs):
-        img = obs['depth']
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        tmp_impath = f'{self.render_dir}/depth.jpg.buf'
-        impath = f'{self.render_dir}/depth.jpg'
-        _, buf = cv2.imencode(".jpg", img)
-        buf.tofile(tmp_impath)
-        # We do this so we don't accidentally load a half-written img
-        os.replace(tmp_impath, impath)
-
-
-    def emit_debug_img(self, obs):
-        img = obs['rgb']
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        tmp_impath = f'{self.render_dir}/out.jpg.buf'
-        impath = f'{self.render_dir}/out.jpg'
-        _, buf = cv2.imencode(".jpg", img)
-        buf.tofile(tmp_impath)
-        # We do this so we don't accidentally load a half-written img
-        os.replace(tmp_impath, impath)
-
-    def emit_debug_map(self, info):
-        w = self.hab_cfg.SIMULATOR.RGB_SENSOR.WIDTH
-        img = maps.colorize_draw_agent_and_fit_to_height(
-            info["top_down_map"], w
-        )
-        tmp_impath = f'{self.render_dir}/map.jpg.buf'
-        impath = f'{self.render_dir}/map.jpg'
-        _, buf = cv2.imencode(".jpg", img)
-        buf.tofile(tmp_impath)
-        # We do this so we don't accidentally load a half-written img
-        os.replace(tmp_impath, impath)
-
     def convert_sem_obs(self, obs):
         '''Convert the habitat semantic observation from
         instance IDs to category IDs'''
         # TODO: Paralellize this using worker pools
         if not 'semantic' in obs:
             return
-        for i in range(len(obs['semantic'].flat)):
-            obs['semantic'].flat[i] = self.semantic_label_lookup(obs['semantic'].flat[i])
-
-    def emit_semantic(self, obs, num_classes=40):
-        # This needs to be really fast
-        img = np.ones(*obs['semantic'].shape,3)
-        norm = 255 // 40
-        # for each channel
-        img[:,:,0] = obs['semantic'] * norm % 255
-        img[:,:,1] = obs['semantic'] * norm % 170
-        img[:,:,2] = obs['semantic'] * norm % 85
-        tmp_impath = f'{self.render_dir}/sem.jpg.buf'
-        impath = f'{self.render_dir}/sem.jpg'
-        _, buf = cv2.imencode(".jpg", img)
-        buf.tofile(tmp_impath)
-        # We do this so we don't accidentally load a half-written img
-        os.replace(tmp_impath, impath)
+        sem = obs['semantic'].copy()
+        for i in range(len(sem.flat)):
+            sem.flat[i] = self._env.sim.semantic_label_lookup[sem.flat[i]]
+        return sem
 
     def step(self, action):
         obs, reward, done, info = super().step(action) 
@@ -175,7 +138,6 @@ class NavEnv(habitat.RLEnv):
             #TODO: We can't have negative numbers
             # find out what -1 actually means
             self._env.sim.semantic_label_lookup[-1] = 0
-            #self.convert_sem_obs(obs)
         except NameError:
             pass
 
