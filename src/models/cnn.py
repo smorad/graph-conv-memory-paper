@@ -123,67 +123,48 @@ class CNNEncoder(torch.nn.Module):
         super().__init__()
         # Takes 320x320
         self.encoder = nn.Sequential(
-            nn.Conv2d(
-                in_channels=42+1+1, # Semantic + target + depth
-                out_channels=64,
-                kernel_size=5,
-                stride=3,
-            ), # b, 64, 106
+            # Semantic + target + depth
+            nn.Conv2d(42+1+1, 64, 5, stride=3), # b, 64, 106
             nn.ReLU(),
-            nn.Conv2d(
-                in_channels=64,
-                out_channels=80,
-                kernel_size=5,
-                stride=3,
-                padding=2
-            ), # b, 128, 36
+            nn.Conv2d(64, 80, 5, stride=3,padding=2), # b, 128, 36
             nn.ReLU(),
-            nn.Conv2d(
-                in_channels=80,
-                out_channels=96,
-                kernel_size=5,
-                stride=3,
-                padding=1
-            ), # b, 160, 12
+            nn.Conv2d(80,96,5,stride=3,padding=1), # b, 160, 12
             nn.ReLU(),
-            nn.Conv2d(
-                in_channels=96,
-                out_channels=112,
-                kernel_size=5,
-                stride=3,
-                padding=1
-            ), # b, 192, 4
+            nn.Conv2d(96,112,5, stride=3,padding=1), # b, 192, 4
             nn.ReLU(), # Final shape 1024 after flattening
-            nn.Conv2d(
-                in_channels=112,
-                out_channels=128,
-                kernel_size=3,
-                stride=1,
-            ), # b, 192, 4
+            nn.Conv2d(112,128,3,stride=1), # b, 192, 4
             nn.ReLU(), # Final shape 1024 after flattening
         )
 
 
     def forward(self, x):
+        '''
         for layer in self.encoder:
             x = layer(x)
             print(x.shape)
         return x
+        '''
         return self.encoder(x)
 
 class CNNDecoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(192, 160, kernel_size=5, stride=3, padding=1), # b, 192, 14
+            nn.ConvTranspose2d(128, 112, kernel_size=3, stride=1), # b, 192, 14
             nn.ReLU(),
-            nn.ConvTranspose2d(160, 128, kernel_size=5, stride=3, padding=1), # b, 192, 44
+            nn.ConvTranspose2d(112, 96, kernel_size=5, stride=3, padding=1), # b, 192, 44
             nn.ReLU(),
-            nn.ConvTranspose2d(128, 96, kernel_size=5, stride=3, padding=2), # b, 192, 134
+            nn.ConvTranspose2d(96, 80, kernel_size=5, stride=3, padding=1), # b, 192, 134
             nn.ReLU(),
-            nn.ConvTranspose2d(96, 42+1+1, kernel_size=5, stride=3), # b, 192, 468
+            nn.ConvTranspose2d(80, 64, kernel_size=5, stride=3, padding=2), # b, 192, 468
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 42+1+1, kernel_size=5, stride=3), # b, 192, 468
             nn.Tanh(),
         )
 
     def forward(self, x):
+        for layer in self.decoder:
+            x = layer(x)
+            print(x.shape)
+        return x
         return self.decoder(x)
