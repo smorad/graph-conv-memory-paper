@@ -4,6 +4,7 @@ import numpy as np
 import cv2
 import multiprocessing
 import habitat
+from collections import OrderedDict
 from habitat.utils.visualizations import maps
 import gym, ray
 from ray.rllib.agents import ppo
@@ -142,6 +143,9 @@ class NavEnv(habitat.RLEnv):
         self.emit_debug_imgs(obs, info, viz)
 
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
+        # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
+        # order matters
+        obs = OrderedDict((k,obs[k]) for k in self.observation_space.spaces)
         return obs, reward, done, info
 
     # Habitat iface that we impl
@@ -179,7 +183,9 @@ class NavEnv(habitat.RLEnv):
         self.maybe_build_sem_lookup_table()
         obs = super().reset()
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
-        import pdb; pdb.set_trace()
+        # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
+        # order matters
+        obs = OrderedDict((k,obs[k]) for k in self.observation_space.spaces)
         return obs
 
 
