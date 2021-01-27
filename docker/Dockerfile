@@ -28,13 +28,13 @@ RUN pip3 install torch==${TORCH}+${CUDA} \
 RUN cd /root/habitat-lab && pip3 install -e .
 
 # Ray rllib
-RUN pip3 install ray[rllib]
+RUN pip3 install gputil ray[rllib]
 
 # Detectron
 RUN pip3 install 'git+https://github.com/facebookresearch/detectron2.git'
 
 # Install our deps; webserver for viewing observation and faster PIL
-RUN pip3 uninstall -y pillow && pip3 install flask pillow-simd
+RUN pip3 uninstall -y pillow && pip3 install flask pillow-simd Flask-SocketIO
 
 # Copy token for gitlab clone
 RUN echo "6RJQmn5AezFsn7Nsqu7N" > /root/token && git clone https://oauth2:$(cat /root/token)@gitlab.developers.cam.ac.uk/cst/prorok-lab/vnav /root/vnav
@@ -54,3 +54,5 @@ RUN apt install -y unzip && \
 # Link matterport models to mounted docker volume
 RUN ln -s /root/scene_datasets/mp3d /root/habitat-lab/data/scene_datasets
 
+# Dev tools
+RUN pip3 install pre-commit && cd /root/vnav && pre-commit && pre-commit install
