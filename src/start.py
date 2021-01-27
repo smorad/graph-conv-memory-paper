@@ -70,29 +70,6 @@ def train(args, cfg):
             object_store_memory=args.object_store_mem)
 
     env_class = load_class(cfg, 'env_wrapper')
-    envs = [env_class(cfg['ray']['env_config']) for _ in range(2)]
-    env_classes = [env_class] * 2
-    configs = [cfg['ray']['env_config']] * 2
-
-    '''
-    vec_env = habitat.VectorEnv(
-        make_env_fn=mk_env_fn,
-        env_fn_args=tuple(zip(configs, env_classes)),
-        auto_reset_done=False
-    )
-    '''
-    from ray.tune.registry import register_env
-    from rayenv import ExternalNavEnv
-    register_env("bork", lambda _: ExternalNavEnv(envs[0]))
-    register_env("bork1", lambda _: ExternalNavEnv(envs[1]))
-
-    trainer_class = load_class(cfg, 'trainer')
-    trainer = trainer_class(env="bork", config=cfg['ray'])
-    trainer = trainer_class(env="bork1", config=cfg['ray'])
-    trainer.train()
-
-    '''
-    env_class = load_class(cfg, 'env_wrapper') 
     trainer_class = load_class(cfg, 'trainer')
     print(f'{trainer_class.__name__}: {env_class.__name__}')
     trainer = trainer_class(env=env_class, config=cfg['ray'])
@@ -104,7 +81,6 @@ def train(args, cfg):
         if epoch >= cfg.get('max_epochs', float('inf')):
             print(f'Trained for {epoch} epochs, terminating')
             break
-    '''
 
 
 def eval(args, cfg):
