@@ -23,7 +23,7 @@ class AutoEncoderPP(ObservationTransformer):
     def add_to_val_set(self, x):
         if not self.validation_set:
             self.validation_set = x
-        elif self.validation_set.shape < val_set_len:
+        elif self.validation_set.shape < self.val_set_len:
             self.validation_set = torch.cat((self.validation_set, x), 0)
         else:
             pass
@@ -53,7 +53,6 @@ class AutoEncoderPP(ObservationTransformer):
         # We actually want to train here
         # so forward should call nn.forward, compute loss, and backprop
 
-        obs["encoder"] = self.nn(net_in).flatten().detach().numpy()
         return obs
 
 

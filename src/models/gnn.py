@@ -1,6 +1,6 @@
 import torch
 from torch.nn import Sequential, Linear, ReLU
-from torch_geometric.nn import MessagePassing
+from torch_geometric.nn import MessagePassing, EdgeConv
 
 
 class EgoGNNModel(MessagePassing):

@@ -4,10 +4,6 @@ from gym import spaces
 
 import detectron2
 from detectron2.utils.logger import setup_logger
-
-setup_logger()
-
-import numpy as np
 import cv2
 import random
 
@@ -18,6 +14,7 @@ from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog
 import torch
 
+setup_logger()
 
 # Ball is coco class 32
 
@@ -63,7 +60,6 @@ class NNSemanticSensor(habitat.Sensor):
         )
 
     def get_observation(self, observations, *args, episode, **kwargs):
-        device = self._sim.config.HABITAT_SIM_V0.GPU_DEVICE_ID
         rgb = observations["rgb"]
         # Format is:
         # Each semantic category gets a channel

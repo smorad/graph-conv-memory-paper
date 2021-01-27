@@ -6,7 +6,7 @@ from flask import Flask, render_template, Response
 from flask_socketio import SocketIO, emit
 from PIL import Image
 from pathlib import Path
-from typing import List
+from typing import List, Generator, Union
 import numpy as np
 import logging
 
@@ -21,6 +21,7 @@ conn_clients = 0
 
 app = Flask(__name__)
 socketio = SocketIO(app)
+
 
 # SocketIO functions use a lock file for a web client connection
 # This ensures we are not wasting cycles producing images if there
@@ -80,24 +81,22 @@ def concat_h_from_paths(img_paths: List[str]) -> np.ndarray:
     return dst
 
 
-def gen() -> str:
+def gen() -> Generator[bytes, None, None]:
     while True:
-        if not os.path.isdir(RENDER_ROOT):
-            continue
-        render_dirs = [f.path for f in os.scandir(RENDER_ROOT) if f.is_dir()]
-        img_paths = [sorted(glob.glob(f"{d}/*.jpg")) for d in render_dirs]
-        if not any(img_paths):
-            continue
-        # Concatenate images in the same dir (rgb, graph, etc) horizontally
-        # and concatenate different dirs (worker1, worker2, etc) vertically
-        h_imgs = [concat_h_from_paths(d) for d in img_paths]
-        final_img = concat_v_from_imgs(h_imgs)
-        buf = io.BytesIO()
-        final_img.save(buf, format="jpeg")
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" + buf.getvalue() + b"\r\n"
-        )
+        if os.path.isdir(RENDER_ROOT):
+            render_dirs = [f.path for f in os.scandir(RENDER_ROOT) if f.is_dir()]
+            img_paths = [sorted(glob.glob(f"{d}/*.jpg")) for d in render_dirs]
+        if any(img_paths):
+            # Concatenate images in the same dir (rgb, graph, etc) horizontally
+            # and concatenate different dirs (worker1, worker2, etc) vertically
+            h_imgs = [concat_h_from_paths(d) for d in img_paths]
+            final_img = concat_v_from_imgs(h_imgs)
+            buf = io.BytesIO()
+            final_img.save(buf, format="jpeg")
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + buf.getvalue() + b"\r\n"
+            )
 
 
 @app.route("/video_feed")

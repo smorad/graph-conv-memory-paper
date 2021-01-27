@@ -1,15 +1,15 @@
 import multiprocessing
 import os
+
 import numpy as np
 import networkx as nx
 import ray
 import cv2
 from ray.rllib.agents import ppo
-from server.render import app
 from habitat.utils.visualizations import maps
 from habitat.utils.visualizations import utils
 
-
+from server.render import RENDER_ROOT, CLIENT_LOCK
 from rayenv import NavEnv
 
 
@@ -69,15 +69,11 @@ class GraphNavEnv(NavEnv):
         if not info["top_down_map"]:
             return
 
-        # node_img = np.ones((20,20,3)) * (255,255,255) // 2
-        # node_img = cv2.circle(node_img, (10,10), radius=10, color=(0,69,255), thickness=-1)
         pose = info["top_down_map"]["agent_map_coord"]
-        angle = info["top_down_map"]["agent_angle"]
         cv_pose = (pose[1], pose[0])
         self.node_map = cv2.circle(
             self.node_map, cv_pose, radius=10, color=(0, 69, 255), thickness=3
         )
-        # utils.paste_overlapping_image(self.node_map, node_img, pose)
 
     def emit_debug_graph(self, info):
         img = self.node_map.copy()

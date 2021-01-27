@@ -1,23 +1,20 @@
 import os
 import argparse
+from collections import OrderedDict
+import multiprocessing
+
 import numpy as np
 import cv2
-import multiprocessing
 import habitat
-from collections import OrderedDict
 from habitat.utils.visualizations import maps
-import gym, ray
-from ray.rllib.agents import ppo
-from gym.spaces import discrete
-from ray.rllib.env.external_env import ExternalEnv
-
-from server.render import RENDER_ROOT, CLIENT_LOCK
-
 from habitat_baselines.common import obs_transformers
+import gym
+from gym.spaces import discrete
+import ray
 
 from sensors.mesh_semantic import SemanticMask
 from sensors.ghost_rgb import GhostRGB
-
+from server.render import RENDER_ROOT, CLIENT_LOCK
 import util
 
 
@@ -88,7 +85,7 @@ class NavEnv(habitat.RLEnv):
         """Convert the habitat semantic observation from
         instance IDs to category IDs"""
         # TODO: Paralellize this using worker pools
-        if not "semantic" in obs:
+        if "semantic" not in obs:
             return
         sem = obs["semantic"].copy()
         for i in range(len(sem.flat)):
