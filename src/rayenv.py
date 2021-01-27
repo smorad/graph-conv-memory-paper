@@ -13,63 +13,37 @@ from ray.rllib.env.external_env import ExternalEnv
 from server.render import RENDER_ROOT, CLIENT_LOCK
 
 from habitat_baselines.common import obs_transformers
+
 from sensors.mesh_semantic import SemanticMask
+from sensors.ghost_rgb import GhostRGB
 
 
 class NavEnv(habitat.RLEnv):
-    # RLEnv exposes a gym iface with the following methods:
-    '''
-    def step(self, action):
-        obs, reward, done, info = super().step(action) 
-        return obs, reward, done, info
-
-    def reset(self):
-        return super().reset() 
-
-    def render(self, mode='human'):
-        return super().render() 
-
-    def close(self):
-        return super().close() 
-    '''
-    # Habitat override
-
-    def set_gpu_id(self):
-        # Ensure habitat only runs on the ray-allocated GPUs
-        # to prevent GPU OOMs
-        # This only works in non-local mode
-        
-        # ray.get_gpu_ids() initializes CUDA context before habitat launch
-        # and will crash habitat. However, accessing the environment
-        # variable also works
-        gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', 0)
-        print(f'Starting habitat instance on gpu {gpu_id}')
-        self.hab_cfg.defrost()
-        self.hab_cfg.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = gpu_id
-        self.hab_cfg.freeze()
-
     def __init__(self, cfg):
         self.visualize = cfg['visualize']
         self.hab_cfg = habitat.get_config(config_paths=cfg['hab_cfg_path'])
-        #self.set_gpu_id()
         super().__init__(self.hab_cfg)
-        # Patch action space since habitat actions use custom spaces for some reason
-        # TODO: these should translate for continuous/arbitrary action distribution
-        self.action_space = discrete.Discrete(len(self.hab_cfg.TASK.POSSIBLE_ACTIONS))
 
         # Each ray actor is a separate process
         # so we can use PIDs to determine which actor is running
         self.pid = os.getpid()
+        # Setup debug rendering
         self.render_dir = f'{RENDER_ROOT}/{self.pid}'
         os.makedirs(self.render_dir, exist_ok=True)
-
-        self.obs_tf = [SemanticMask(self._env.sim)]
+        # Patch action space since habitat actions use custom spaces for some reason
+        # TODO: these should translate for continuous/arbitrary action distribution
+        self.action_space = discrete.Discrete(len(self.hab_cfg.TASK.POSSIBLE_ACTIONS))
+        # Observation transformers let us modify observations without
+        # adding new sensors
+        self.obs_tf = [SemanticMask(self._env.sim), GhostRGB()]
         self.observation_space = obs_transformers.apply_obs_transforms_obs_space(
                 self.observation_space, self.obs_tf)
+        print('New obs space', self.observation_space)
 
 
     def emit_debug_imgs(self, obs, info, keys=[]):
         '''Emit debug images to be served over the browser'''
+        import pdb; pdb.set_trace()
         for key in keys:
             img = obs.get(key, None)
             if not img:
@@ -152,7 +126,6 @@ class NavEnv(habitat.RLEnv):
 
     def step(self, action):
         obs, reward, done, info = super().step(action) 
-        obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
         # Only visualize if someone is viewing via webbrowser
         viz = []
         if CLIENT_LOCK.exists():
@@ -161,6 +134,8 @@ class NavEnv(habitat.RLEnv):
             if self.visualize >= 2: 
                 viz += ['top_down_map']
         self.emit_debug_imgs(obs, info, viz)
+
+        obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
         return obs, reward, done, info
 
     # Habitat iface that we impl
@@ -178,7 +153,7 @@ class NavEnv(habitat.RLEnv):
     def get_info(self, observations):
         return self.habitat_env.get_metrics()
 
-    def reset(self):
+    def maybe_build_sem_lookup_table(self):
         # for some reason hasattr doesn't work here, try/except instead
         try:
             scene = self._env.sim.semantic_annotations()
@@ -193,6 +168,9 @@ class NavEnv(habitat.RLEnv):
             #self.convert_sem_obs(obs)
         except NameError:
             pass
+
+    def reset(self):
+        self.maybe_build_sem_lookup_table()
         obs = super().reset()
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
         return obs

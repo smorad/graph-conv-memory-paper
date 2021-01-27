@@ -16,7 +16,7 @@ class SemanticMask(ObservationTransformer):
             return obs_space
 
         self.shape = (self.num_cats, *obs_space['semantic'].shape)
-        obs_space['semantic'].spaces = spaces.Box(
+        obs_space.spaces['semantic'] = spaces.Box(
             low=0,
             high=1,
             shape=self.shape,
@@ -28,7 +28,7 @@ class SemanticMask(ObservationTransformer):
         if 'semantic' not in obs:
             return obs
 
-        layers = np.zeros(self.shape, dtype=int)
+        layers = np.zeros(self.shape, dtype=np.uint32)
         # 1 channel, pixel == instance_id => n channel, channel == obj_id, pixel == 1
         for inst_id, obj_id in self.sim.semantic_label_lookup.items():
             idxs = np.where(obs['semantic'].flat == inst_id)
