@@ -12,27 +12,8 @@ from ray.rllib.env.external_env import ExternalEnv
 
 from server.render import RENDER_ROOT, CLIENT_LOCK
 
-
-class ExternalNavEnv(ExternalEnv):
-    def __init__(self, hab_vec_env):
-        self.env = hab_vec_env
-        super().__init__(
-                action_space=self.env.action_space,
-                observation_space=self.env.observation_space
-        )
-
-    def run(self):
-        eid = self.start_episode()
-        obs = env.reset()
-        while True:
-            action = self.get_action(eid, obs)
-            obs, reward, done, info = self.env.step(action)
-            self.log_returns(eid, reward, info=info)
-            if done:
-                self.end_episode(eid, obs)
-                obs = self.env.reset()
-                eid = self.start_episode()
-
+from habitat_baselines.common import obs_transformers
+from sensors.mesh_semantic import SemanticMask
 
 
 class NavEnv(habitat.RLEnv):
@@ -53,56 +34,39 @@ class NavEnv(habitat.RLEnv):
     '''
     # Habitat override
 
-    def load_sem_sensor(self):
-        import sensors.nn_semantic
-        self.hab_cfg.defrost()
-        self.hab_cfg.TASK.AGENT_POSITION_SENSOR = habitat.Config()
-        self.hab_cfg.TASK.AGENT_POSITION_SENSOR.TYPE = "NNSemanticSensor"
-        self.hab_cfg.TASK.SENSORS.append("AGENT_POSITION_SENSOR")
-        self.hab_cfg.freeze()
-
-    def load_mesh_sem_sensor(self):
-        import sensors.mesh_semantic
-        self.hab_cfg.defrost()
-        self.hab_cfg.TASK.SEMANTIC_MASK_SENSOR = habitat.Config()
-        self.hab_cfg.TASK.SEMANTIC_MASK_SENSOR.TYPE = "SemanticMaskSensor"
-        self.hab_cfg.TASK.SENSORS.append("SEMANTIC_MASK_SENSOR")
-        self.hab_cfg.freeze()
-
     def set_gpu_id(self):
         # Ensure habitat only runs on the ray-allocated GPUs
         # to prevent GPU OOMs
         # This only works in non-local mode
-        gpu_ids = ray.get_gpu_ids()
-        if len(gpu_ids) == 1:
-            print(f'Starting habitat instance on gpu {gpu_ids[0]}')
-            self.hab_cfg.defrost()
-            self.hab_cfg.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = gpu_ids[0]
-            self.hab_cfg.freeze()
-        elif len(gpu_ids) == 0:
-            print('No GPUs found but one is required.'
-            ' We are likely running in local mode, using default gpu (likely gpu0).')
-        else:
-            raise NotImplementedError('Multiple GPUs allocated, we have only tested one per worker')
+        
+        # ray.get_gpu_ids() initializes CUDA context before habitat launch
+        # and will crash habitat. However, accessing the environment
+        # variable also works
+        gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', 0)
+        print(f'Starting habitat instance on gpu {gpu_id}')
+        self.hab_cfg.defrost()
+        self.hab_cfg.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = gpu_id
+        self.hab_cfg.freeze()
 
     def __init__(self, cfg):
         self.visualize = cfg['visualize']
         self.hab_cfg = habitat.get_config(config_paths=cfg['hab_cfg_path'])
-        #self.load_sem_sensor()
-        #self.load_mesh_sem_sensor()
         #self.set_gpu_id()
         super().__init__(self.hab_cfg)
         # Patch action space since habitat actions use custom spaces for some reason
         # TODO: these should translate for continuous/arbitrary action distribution
         self.action_space = discrete.Discrete(len(self.hab_cfg.TASK.POSSIBLE_ACTIONS))
-        # Patch observation space because we modify semantic sensor
-        # to produce object ids instead of instance ids
 
         # Each ray actor is a separate process
         # so we can use PIDs to determine which actor is running
         self.pid = os.getpid()
         self.render_dir = f'{RENDER_ROOT}/{self.pid}'
         os.makedirs(self.render_dir, exist_ok=True)
+
+        self.obs_tf = [SemanticMask(self._env.sim)]
+        self.observation_space = obs_transformers.apply_obs_transforms_obs_space(
+                self.observation_space, self.obs_tf)
+
 
     def emit_debug_imgs(self, obs, info, keys=[]):
         '''Emit debug images to be served over the browser'''
@@ -129,8 +93,6 @@ class NavEnv(habitat.RLEnv):
             # We do this so we don't accidentally load a half-written img
             os.replace(tmp_impath, impath)
             
-
-
     def emit_debug_depth(self, obs):
         img = obs['depth']
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -190,8 +152,7 @@ class NavEnv(habitat.RLEnv):
 
     def step(self, action):
         obs, reward, done, info = super().step(action) 
-        #import pdb; pdb.set_trace()
-        #self.convert_sem_obs(obs)
+        obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
         # Only visualize if someone is viewing via webbrowser
         viz = []
         if CLIENT_LOCK.exists():
@@ -233,7 +194,7 @@ class NavEnv(habitat.RLEnv):
         except NameError:
             pass
         obs = super().reset()
-        #import pdb; pdb.set_trace()
+        obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
         return obs
 
 

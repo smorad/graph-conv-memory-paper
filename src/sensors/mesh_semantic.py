@@ -2,41 +2,40 @@ import habitat
 import numpy as np
 from gym import spaces
 import habitat_sim
-#from habitat.core.simulator import SemanticSensor, VisualObservation, Sensor
+from habitat_baselines.common.obs_transformers import ObservationTransformer
 from typing import List, Any, Union, Optional, cast, Dict
 
-class SemanticMaskSensor(SemanticSensor):
-    sim_sensor_type: habitat_sim.SensorType
-
-    def __init__(self, sim, config):
-        import pdb; pdb.set_trace()
-        self.sim_sensor_type = habitat_sim.SensorType.SEMANTIC
+class SemanticMask(ObservationTransformer):
+    def __init__(self, sim, num_cats=42):
+        self.num_cats = 42
         self.sim = sim
-        super().__init__(config=config)
+        super().__init__()
 
-    def _get_observation_space(self, *args: Any, **kwargs: Any):
-        return spaces.Box(
+    def transform_observation_space(self, obs_space):
+        if 'semantic' not in obs_space.spaces:
+            return obs_space
+
+        self.shape = (self.num_cats, *obs_space['semantic'].shape)
+        obs_space['semantic'].spaces = spaces.Box(
             low=0,
             high=1,
-            shape=(self.config.HEIGHT, self.config.WIDTH),
-            dtype=np.uint32,
+            shape=self.shape,
+            dtype=np.uint32
         )
+        return obs_space
 
-    def get_observation(
-        self, sim_obs: Dict[str, Union[np.ndarray, bool, "Tensor"]]
-    ) -> VisualObservation:
-        obs = cast(Optional[VisualObservation], sim_obs.get(self.uuid, None))
-        check_sim_obs(obs, self)
-        layers = np.zeros(len(self.sim.semantic_label_lookup.values()), *obs.shape, dtype=int)
+    def forward(self, obs):
+        if 'semantic' not in obs:
+            return obs
+
+        layers = np.zeros(self.shape, dtype=int)
         # 1 channel, pixel == instance_id => n channel, channel == obj_id, pixel == 1
         for inst_id, obj_id in self.sim.semantic_label_lookup.items():
-            idxs = np.where(obs.flat == inst_id)
+            idxs = np.where(obs['semantic'].flat == inst_id)
             layers[obj_id].flat[idxs] = 1
-        return layers
+        obs['semantic'] = layers
+        return obs
 
-
-def check_sim_obs(obs: np.ndarray, sensor: Sensor) -> None:
-    assert obs is not None, (
-        "Observation corresponding to {} not present in "
-        "simulator's observations".format(sensor.uuid)
-    )
+    def from_config(cls, config):
+        # TODO: Figure out if we need this
+        raise NotImplementedError()
