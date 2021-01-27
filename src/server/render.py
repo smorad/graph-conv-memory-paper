@@ -27,22 +27,20 @@ conn_clients = 0
 @socketio.on("connect", namespace="/")
 def connect() -> None:
     global conn_clients
-    print(f'Client connected, clients: {conn_clients}')
     conn_clients += 1
+    print(f'Client connected, clients: {conn_clients}')
     if conn_clients >= 0:
         print('Enabling visualization')
         CLIENT_LOCK.touch()
-    socketio.emit('my response', {'data': 'Connected'})
 
 @socketio.on("disconnect", namespace="/")
 def disconnect() -> None:
     global conn_clients
-    print(f'Client disconnected, clients: {conn_clients}')
     conn_clients -= 1
+    print(f'Client disconnected, clients: {conn_clients}')
     if conn_clients <= 0:
         print('Disabling visualization')
         CLIENT_LOCK.unlink(missing_ok=True)
-    socketio.emit('my response', {'data': 'Disconnected'})
 
 # Default load page
 @app.route('/')
@@ -96,4 +94,4 @@ def video_feed():
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True, use_reloader=False)
+    socketio.run(app, host='0.0.0.0', debug=True, use_reloader=False)

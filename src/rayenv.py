@@ -22,6 +22,7 @@ class NavEnv(habitat.RLEnv):
     def __init__(self, cfg):
         self.visualize = cfg['visualize']
         self.hab_cfg = habitat.get_config(config_paths=cfg['hab_cfg_path'])
+        # TODO: Set different random seeds for different workers (based on pid maybe)
         super().__init__(self.hab_cfg)
 
         # Each ray actor is a separate process
@@ -38,27 +39,28 @@ class NavEnv(habitat.RLEnv):
         self.obs_tf = [SemanticMask(self._env.sim), GhostRGB()]
         self.observation_space = obs_transformers.apply_obs_transforms_obs_space(
                 self.observation_space, self.obs_tf)
-        print('New obs space', self.observation_space)
 
 
     def emit_debug_imgs(self, obs, info, keys=[]):
         '''Emit debug images to be served over the browser'''
-        import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
         for key in keys:
             img = obs.get(key, None)
-            if not img:
+            if img is None:
                 img = info.get(key, None)
-            if not img:
-                break
+            if img is None:
+                continue 
 
             if key == 'depth':
-                pass
+                img = img.astype('int') * 255
             elif key == 'rgb':
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             elif key == 'top_down_map':
                 img = maps.colorize_draw_agent_and_fit_to_height(
                     img, self.hab_cfg.SIMULATOR.RGB_SENSOR.WIDTH                
                 )
+            else:
+                continue
 
             tmp_impath = f'{self.render_dir}/{key}.jpg.buf'
             impath = f'{self.render_dir}/{key}.jpg'
@@ -130,7 +132,7 @@ class NavEnv(habitat.RLEnv):
         viz = []
         if CLIENT_LOCK.exists():
             if self.visualize >= 1:
-                viz += ['rgb', 'semantic']
+                viz += ['rgb', 'semantic', 'depth']
             if self.visualize >= 2: 
                 viz += ['top_down_map']
         self.emit_debug_imgs(obs, info, viz)
