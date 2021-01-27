@@ -24,7 +24,7 @@ class ResNeXt50(TorchModelV2):
 
 
 class DepthAutoEncoder(torch.nn.Module):
-    def __init__(self, num_cats=80):
+    def __init__(self, num_cats=42):
         super().__init__()
         self.num_cats = num_cats
         self.encoder = CNNEncoder()
@@ -48,31 +48,31 @@ class CNNEncoder(torch.nn.Module):
         # Takes 320x320
         self.encoder = nn.Sequential(
             nn.Conv2d(
-                in_channels=80+1, # Semantic + depth
-                out_channels=96,
+                in_channels=42+1+1, # Semantic + depth
+                out_channels=48,
                 kernel_size=5,
                 stride=3,
             ), # b, 128, 106
             nn.ReLU(),
             nn.Conv2d(
-                in_channels=96,
-                out_channels=128,
+                in_channels=48,
+                out_channels=96,
                 kernel_size=5,
                 stride=3,
                 padding=2
             ), # b, 192, 36
             nn.ReLU(),
             nn.Conv2d(
-                in_channels=128,
-                out_channels=192,
+                in_channels=96,
+                out_channels=128,
                 kernel_size=5,
                 stride=3,
                 padding=1
             ), # b, 256, 12
             nn.ReLU(),
             nn.Conv2d(
-                in_channels=192,
-                out_channels=256,
+                in_channels=128,
+                out_channels=160,
                 kernel_size=5,
                 stride=3,
                 padding=1
@@ -88,19 +88,19 @@ class CNNDecoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(256, 192, kernel_size=5, stride=3, padding=1), # b, 192, 14
+            nn.ConvTranspose2d(160, 128, kernel_size=5, stride=3, padding=1), # b, 192, 14
             nn.ReLU(),
-            nn.ConvTranspose2d(192, 128, kernel_size=5, stride=3, padding=1), # b, 192, 44
+            nn.ConvTranspose2d(128, 96, kernel_size=5, stride=3, padding=1), # b, 192, 44
             nn.ReLU(),
-            nn.ConvTranspose2d(128, 96, kernel_size=5, stride=3, padding=2), # b, 192, 134
+            nn.ConvTranspose2d(96, 48, kernel_size=5, stride=3, padding=2), # b, 192, 134
             nn.ReLU(),
-            nn.ConvTranspose2d(96, 81, kernel_size=5, stride=3), # b, 192, 468
+            nn.ConvTranspose2d(48, 43, kernel_size=5, stride=3), # b, 192, 468
             nn.Tanh(),
         )
 
 
 class CNNAutoEncoder(torch.nn.Module):
-    def __init__(self, num_cats=80):
+    def __init__(self, num_cats=42):
         super().__init__()
         self.num_cats = num_cats
         self.encoder = CNNEncoder()
@@ -124,53 +124,64 @@ class CNNEncoder(torch.nn.Module):
         # Takes 320x320
         self.encoder = nn.Sequential(
             nn.Conv2d(
-                in_channels=80+1, # Semantic + depth
-                out_channels=96,
+                in_channels=42+1+1, # Semantic + target + depth
+                out_channels=64,
                 kernel_size=5,
                 stride=3,
-            ), # b, 128, 106
+            ), # b, 64, 106
             nn.ReLU(),
             nn.Conv2d(
-                in_channels=96,
-                out_channels=128,
+                in_channels=64,
+                out_channels=80,
                 kernel_size=5,
                 stride=3,
                 padding=2
-            ), # b, 192, 36
+            ), # b, 128, 36
             nn.ReLU(),
             nn.Conv2d(
-                in_channels=128,
-                out_channels=192,
+                in_channels=80,
+                out_channels=96,
                 kernel_size=5,
                 stride=3,
                 padding=1
-            ), # b, 256, 12
+            ), # b, 160, 12
             nn.ReLU(),
             nn.Conv2d(
-                in_channels=192,
-                out_channels=256,
+                in_channels=96,
+                out_channels=112,
                 kernel_size=5,
                 stride=3,
                 padding=1
-            ), # b, 256, 4
+            ), # b, 192, 4
+            nn.ReLU(), # Final shape 1024 after flattening
+            nn.Conv2d(
+                in_channels=112,
+                out_channels=128,
+                kernel_size=3,
+                stride=1,
+            ), # b, 192, 4
             nn.ReLU(), # Final shape 1024 after flattening
         )
 
 
     def forward(self, x):
+        for layer in self.encoder:
+            x = layer(x)
+            print(x.shape)
+        return x
         return self.encoder(x)
 
 class CNNDecoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(256, 192, kernel_size=5, stride=3, padding=1), # b, 192, 14
+            nn.ConvTranspose2d(192, 160, kernel_size=5, stride=3, padding=1), # b, 192, 14
             nn.ReLU(),
-            nn.ConvTranspose2d(192, 128, kernel_size=5, stride=3, padding=1), # b, 192, 44
+            nn.ConvTranspose2d(160, 128, kernel_size=5, stride=3, padding=1), # b, 192, 44
             nn.ReLU(),
             nn.ConvTranspose2d(128, 96, kernel_size=5, stride=3, padding=2), # b, 192, 134
             nn.ReLU(),
-            nn.ConvTranspose2d(96, 81, kernel_size=5, stride=3), # b, 192, 468
+            nn.ConvTranspose2d(96, 42+1+1, kernel_size=5, stride=3), # b, 192, 468
             nn.Tanh(),
         )
 

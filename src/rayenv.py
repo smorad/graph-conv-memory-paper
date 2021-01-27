@@ -17,6 +17,8 @@ from habitat_baselines.common import obs_transformers
 from sensors.mesh_semantic import SemanticMask
 from sensors.ghost_rgb import GhostRGB
 
+import util
+
 
 class NavEnv(habitat.RLEnv):
     def __init__(self, cfg):
@@ -36,10 +38,12 @@ class NavEnv(habitat.RLEnv):
         self.action_space = discrete.Discrete(len(self.hab_cfg.TASK.POSSIBLE_ACTIONS))
         # Observation transformers let us modify observations without
         # adding new sensors
-        self.obs_tf = [SemanticMask(self._env.sim), GhostRGB()]
+        # TODO: SemanticMask adds takes startup time from 20s to 160s
+        # and OOMs gpus. Likely due to atari preprocessor
+        self.preprocessor = util.load_class(cfg, 'preprocessor')
+        self.obs_tf = [SemanticMask(self._env.sim), GhostRGB(), self.preprocessor()]
         self.observation_space = obs_transformers.apply_obs_transforms_obs_space(
                 self.observation_space, self.obs_tf)
-
 
     def emit_debug_imgs(self, obs, info, keys=[]):
         '''Emit debug images to be served over the browser'''
@@ -52,7 +56,7 @@ class NavEnv(habitat.RLEnv):
                 continue 
 
             if key == 'depth':
-                img = img.astype('int') * 255
+                img = img.astype(np.uint8) * 255
             elif key == 'rgb':
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             elif key == 'top_down_map':
@@ -175,6 +179,7 @@ class NavEnv(habitat.RLEnv):
         self.maybe_build_sem_lookup_table()
         obs = super().reset()
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
+        import pdb; pdb.set_trace()
         return obs
 
 
