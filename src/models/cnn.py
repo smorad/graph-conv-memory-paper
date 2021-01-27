@@ -23,7 +23,7 @@ class ResNeXt50(TorchModelV2):
             return self.model.forward(x)
 
 
-class DepthAutoEncoder(torch.nn.Module):
+class CNNAutoEncoder(torch.nn.Module):
     def __init__(self, num_cats=42):
         super().__init__()
         self.num_cats = num_cats
@@ -98,26 +98,6 @@ class CNNDecoder(torch.nn.Module):
             nn.Tanh(),
         )
 
-
-class CNNAutoEncoder(torch.nn.Module):
-    def __init__(self, num_cats=42):
-        super().__init__()
-        self.num_cats = num_cats
-        self.encoder = CNNEncoder()
-        self.decoder = CNNDecoder()
-
-    def forward(self, x):
-        return self.decoder(self.encoder(x))
-
-    def loss(self, output, target):
-        # Our input is 80 semantic layers and 1 depth layer
-        # let's weight s.t. semantic and depth observations
-        # are equal importance
-        depth_e = torch.mean(outputs[:,0] - target[:,0]) ** 2
-        semantic_e = torch.mean(outputs[:,1:] - target[:,1:] / self.num_cats) ** 2
-        loss = depth_e + semantic_e
-        return loss
-
 class CNNEncoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -163,8 +143,10 @@ class CNNDecoder(torch.nn.Module):
         )
 
     def forward(self, x):
+        '''
         for layer in self.decoder:
             x = layer(x)
             print(x.shape)
         return x
+        '''
         return self.decoder(x)
