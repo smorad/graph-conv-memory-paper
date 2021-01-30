@@ -1,5 +1,5 @@
 from rayenv import NavEnv
-from models.cnn import CNNEncoder, CNNAutoEncoder
+from models.ae import CNNEncoder, CNNAutoEncoder
 from habitat_baselines.common.obs_transformers import ObservationTransformer
 from gym.spaces import Dict, Box
 import numpy as np

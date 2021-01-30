@@ -7,23 +7,6 @@ import torch
 from torch import nn
 
 
-class ResNeXt50(TorchModelV2):
-    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
-        TorchModelV2.__init__(
-            self, obs_space, action_space, num_outputs, model_config, name
-        )
-        self.model = resnext50_32x4d(pretrained=True)
-
-    def forward(self, x):
-        # https://pytorch.org/hub/pytorch_vision_resnext/
-        # TODO: Normalize to [0,1], shape (3xHxW), norm to
-        # mean = [0.485, 0.456, 0.406] and std = [0.229, 0.224, 0.225]
-        x /= 255.0
-
-        with torch.no_grad():
-            return self.model.forward(x)
-
-
 class CNNAutoEncoder(torch.nn.Module):
     def __init__(self, num_cats=42):
         super().__init__()

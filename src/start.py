@@ -2,6 +2,7 @@ import argparse
 import importlib
 import multiprocessing
 import json
+import time
 import shutil
 import ray
 import server.render
@@ -61,11 +62,24 @@ def train(args, cfg):
     env_class = util.load_class(cfg, "env_wrapper")
     trainer_class = util.load_class(cfg, "trainer")
     print(f"{trainer_class.__name__}: {env_class.__name__}")
+    from ray.rllib.models import ModelCatalog
+    from models.ray_vae import RayVAE
+
+    ModelCatalog.register_custom_model("ray_vae", RayVAE)
     trainer = trainer_class(env=env_class, config=cfg["ray"])
     epoch = 0
+    start_t = time.time()
     while True:
         print(f"Epoch: {epoch}")
-        print(trainer.train())
+        epoch_results = trainer.train()
+        num_steps = sum(epoch_results["hist_stats"]["episode_lengths"])
+        print(pretty_print(epoch_results))
+        epoch_t = time.time() - start_t
+        print(f"Epoch {epoch} done in {epoch_t:.2f}s, {num_steps / epoch_t:.2f} fps")
+        if epoch % 50 == 0:
+            cpt = trainer.save()
+            print(f"Saved to {cpt}")
+
         epoch += 1
         if epoch >= cfg.get("max_epochs", float("inf")):
             print(f"Trained for {epoch} epochs, terminating")
