@@ -7,7 +7,7 @@
                     "module": "preprocessors.sem_onehot",
                     "class": "SemanticOnehot"
                 },
-                "semantic": {
+                "depth": {
                     "module": "preprocessors.quantized_depth",
                     "class": "QuantizedDepth"
                 },

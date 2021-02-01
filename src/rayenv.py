@@ -19,7 +19,7 @@ import util
 
 class NavEnv(habitat.RLEnv):
     def __init__(self, cfg):
-        self.visualize = cfg["visualize"]
+        self.visualize_lvl = cfg["visualize"]
         self.hab_cfg = habitat.get_config(config_paths=cfg["hab_cfg_path"])
         # TODO: Set different random seeds for different workers (based on pid maybe)
         super().__init__(self.hab_cfg)
@@ -74,12 +74,23 @@ class NavEnv(habitat.RLEnv):
             else:
                 continue
 
-            tmp_impath = f"{self.render_dir}/{key}.jpg.buf"
-            impath = f"{self.render_dir}/{key}.jpg"
+            tmp_impath = f"{self.render_dir}/dbg_{key}.jpg.buf"
+            impath = f"{self.render_dir}/dbg_{key}.jpg"
             _, buf = cv2.imencode(".jpg", img)
             buf.tofile(tmp_impath)
             # We do this so we don't accidentally load a half-written img
             os.replace(tmp_impath, impath)
+
+    def emit_preproc_imgs(self, obs):
+        for p in self.preprocessors:
+            if hasattr(p, "visualize"):
+                img = p.visualize()
+                tmp_impath = f"{self.render_dir}/pp_{type(p).__name__}.jpg.buf"
+                impath = f"{self.render_dir}/pp_{type(p).__name__}.jpg"
+                _, buf = cv2.imencode(".jpg", img)
+                buf.tofile(tmp_impath)
+                # We do this so we don't accidentally load a half-written img
+                os.replace(tmp_impath, impath)
 
     def convert_sem_obs(self, obs):
         """Convert the habitat semantic observation from
@@ -95,18 +106,12 @@ class NavEnv(habitat.RLEnv):
     def step(self, action):
         obs, reward, done, info = super().step(action)
         # Only visualize if someone is viewing via webbrowser
-        viz = []
-        if CLIENT_LOCK.exists():
-            if self.visualize >= 1:
-                viz += ["rgb", "semantic", "depth"]
-            if self.visualize >= 2:
-                viz += ["top_down_map"]
-        self.emit_debug_imgs(obs, info, viz)
-
+        self.maybe_viz(obs, info)
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.preprocessors)
         # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
         # order matters
         obs = OrderedDict((k, obs[k]) for k in self.observation_space.spaces)
+        self.maybe_viz_pp(obs)
         return obs, reward, done, info
 
     # Habitat iface that we impl
@@ -147,11 +152,27 @@ class NavEnv(habitat.RLEnv):
         except NameError:
             pass
 
+    def maybe_viz(self, obs, info={}):
+        viz = []
+        if CLIENT_LOCK.exists():
+            if self.visualize_lvl >= 1:
+                viz += ["rgb", "semantic", "depth"]
+            if self.visualize_lvl >= 2:
+                viz += ["top_down_map"]
+        self.emit_debug_imgs(obs, info, viz)
+
+    def maybe_viz_pp(self, obs):
+        if CLIENT_LOCK.exists():
+            if self.visualize_lvl >= 1:
+                self.emit_preproc_imgs(obs)
+
     def reset(self):
         self.maybe_build_sem_lookup_table()
         obs = super().reset()
+        self.maybe_viz(obs)
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.preprocessors)
         # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
         # order matters
         obs = OrderedDict((k, obs[k]) for k in self.observation_space.spaces)
+        self.maybe_viz_pp(obs)
         return obs

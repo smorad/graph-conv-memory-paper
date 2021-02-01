@@ -42,16 +42,21 @@ class QuantizedDepth(ObservationTransformer):
             return obs
 
         depth = np.reshape(obs["depth"], (1, *self.sensor_shape))
-        quant_depth = torch.nn.functional.avg_pool2d(
-            torch.FloatTensor(depth), self.facs.tolist()
+        quant_depth = (
+            torch.nn.functional.avg_pool2d(torch.FloatTensor(depth), self.facs.tolist())
+            .squeeze()
+            .numpy()
         )
         # Pytorch doesn't implement min pool, so we use this trick
         obs["depth"] = quant_depth
         self.quant_depth = quant_depth
         return obs
 
-    def visualize(self, dims):
-        return cv2.resize(self.quant_depth, dims)
+    def visualize(self):
+        return (
+            255
+            * cv2.resize(self.quant_depth, tuple(self.sensor_shape), cv2.INTER_NEAREST)
+        ).astype(np.int8)
 
     def from_config(cls, config):
         # TODO: Figure out if we need this
