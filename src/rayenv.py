@@ -12,8 +12,6 @@ import gym
 from gym.spaces import discrete
 import ray
 
-from sensors.mesh_semantic import SemanticMask
-from sensors.ghost_rgb import GhostRGB
 from server.render import RENDER_ROOT, CLIENT_LOCK
 import util
 
@@ -38,10 +36,12 @@ class NavEnv(habitat.RLEnv):
         # adding new sensors
         # TODO: SemanticMask adds takes startup time from 20s to 160s
         # and OOMs gpus. Likely due to atari preprocessor
-        self.preprocessor = util.load_class(cfg, "preprocessor")
-        self.obs_tf = [SemanticMask(self._env.sim), GhostRGB(), self.preprocessor()]
+        self.preprocessors = [
+            util.load_class(cfg["preprocessors"], k)(self) for k in cfg["preprocessors"]
+        ]
+        # self.obs_tf = [SemanticMask(self._env.sim), GhostRGB(), self.preprocessors()]
         self.observation_space = obs_transformers.apply_obs_transforms_obs_space(
-            self.observation_space, self.obs_tf
+            self.observation_space, self.preprocessors
         )
 
     def emit_debug_imgs(self, obs, info, keys=[]):
@@ -89,7 +89,7 @@ class NavEnv(habitat.RLEnv):
             return
         sem = obs["semantic"].copy()
         for i in range(len(sem.flat)):
-            sem.flat[i] = self._env.sim.semantic_label_lookup[sem.flat[i]]
+            sem.flat[i] = self.semantic_label_lookup[sem.flat[i]]
         return sem
 
     def step(self, action):
@@ -103,7 +103,7 @@ class NavEnv(habitat.RLEnv):
                 viz += ["top_down_map"]
         self.emit_debug_imgs(obs, info, viz)
 
-        obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
+        obs = obs_transformers.apply_obs_transforms_batch(obs, self.preprocessors)
         # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
         # order matters
         obs = OrderedDict((k, obs[k]) for k in self.observation_space.spaces)
@@ -132,20 +132,20 @@ class NavEnv(habitat.RLEnv):
             scene = self._env.sim.semantic_annotations()
             # See https://github.com/niessner/Matterport/blob/master/metadata/mpcat40.tsv
             # for human-readable mapping
-            self._env.sim.semantic_label_lookup = {
+            self.semantic_label_lookup = {
                 int(obj.id.split("_")[-1]): obj.category.index()
                 for obj in scene.objects
             }
             # TODO: We can't have negative numbers
             # find out what -1 actually means
-            self._env.sim.semantic_label_lookup[-1] = 0
+            self.semantic_label_lookup[-1] = 0
         except NameError:
             pass
 
     def reset(self):
         self.maybe_build_sem_lookup_table()
         obs = super().reset()
-        obs = obs_transformers.apply_obs_transforms_batch(obs, self.obs_tf)
+        obs = obs_transformers.apply_obs_transforms_batch(obs, self.preprocessors)
         # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
         # order matters
         obs = OrderedDict((k, obs[k]) for k in self.observation_space.spaces)

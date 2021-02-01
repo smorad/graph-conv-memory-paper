@@ -15,7 +15,7 @@ class AutoEncoderPP(ObservationTransformer):
     validation_set = None
     loss = -1
 
-    def __init__(self, val_set_len=100):
+    def __init__(self, env, val_set_len=100):
         super().__init__()
         self.nn = CNNAutoEncoder()
         self.val_set_len = val_set_len

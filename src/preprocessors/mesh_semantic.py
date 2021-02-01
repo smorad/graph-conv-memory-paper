@@ -7,9 +7,9 @@ from typing import List, Any, Union, Optional, cast, Dict
 
 
 class SemanticMask(ObservationTransformer):
-    def __init__(self, sim, num_cats=42):
+    def __init__(self, env, num_cats=42):
         self.num_cats = 42
-        self.sim = sim
+        self.env = env
         super().__init__()
 
     def transform_observation_space(self, obs_space):
@@ -28,7 +28,7 @@ class SemanticMask(ObservationTransformer):
 
         layers = np.zeros(self.shape, dtype=np.uint32)
         # 1 channel, pixel == instance_id => n channel, channel == obj_id, pixel == 1
-        for inst_id, obj_id in self.sim.semantic_label_lookup.items():
+        for inst_id, obj_id in self.env.semantic_label_lookup.items():
             idxs = np.where(obs["semantic"].flat == inst_id)
             layers[obj_id].flat[idxs] = 1
         obs["semantic"] = layers

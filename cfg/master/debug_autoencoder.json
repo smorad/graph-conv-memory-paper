@@ -2,23 +2,29 @@
     "ray": {
         "env_config": {
             "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_debug_autoencoder.yaml",
-            "preprocessor": {
-                "module": "preprocessors.noop",
-                "class": "NoopPP"
+            "preprocessors": {
+                "semantic": {
+                    "module": "preprocessors.mesh_semantic",
+                    "class": "SemanticMask"
+                },
+                "ghost_rgb": {
+                    "module": "preprocessors.ghost_rgb",
+                    "class": "GhostRGB"
+                }
             }
         }, 
         "num_workers": 0,
         "num_gpus_per_worker": 1,
         "framework": "torch",
-	"train_batch_size": 64,
-	"rollout_fragment_length": 64,
-	"sgd_minibatch_size": 32,
+    "train_batch_size": 64,
+    "rollout_fragment_length": 64,
+    "sgd_minibatch_size": 32,
         "model": {
             "framestack": false
         },
         "model": {
-	    "custom_model": "RayVAE"
-	}
+        "custom_model": "RayVAE"
+    }
     },
     "env_wrapper": {
         "module": "rayenv",

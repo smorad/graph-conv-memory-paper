@@ -2,7 +2,7 @@ from habitat_baselines.common.obs_transformers import ObservationTransformer
 
 
 class GhostRGB(ObservationTransformer):
-    def __init__(self):
+    def __init__(self, env):
         super().__init__()
 
     def transform_observation_space(self, obs_space):
