@@ -4,6 +4,7 @@ from collections import OrderedDict
 import multiprocessing
 
 import numpy as np
+import torch
 import cv2
 import habitat
 from habitat.utils.visualizations import maps
@@ -39,7 +40,6 @@ class NavEnv(habitat.RLEnv):
         self.preprocessors = [
             util.load_class(cfg["preprocessors"], k)(self) for k in cfg["preprocessors"]
         ]
-        # self.obs_tf = [SemanticMask(self._env.sim), GhostRGB(), self.preprocessors()]
         self.observation_space = obs_transformers.apply_obs_transforms_obs_space(
             self.observation_space, self.preprocessors
         )
@@ -132,13 +132,18 @@ class NavEnv(habitat.RLEnv):
             scene = self._env.sim.semantic_annotations()
             # See https://github.com/niessner/Matterport/blob/master/metadata/mpcat40.tsv
             # for human-readable mapping
-            self.semantic_label_lookup = {
+            semantic_label_dict = {
                 int(obj.id.split("_")[-1]): obj.category.index()
                 for obj in scene.objects
             }
             # TODO: We can't have negative numbers
             # find out what -1 actually means
-            self.semantic_label_lookup[-1] = 0
+            semantic_label_dict[-1] = 0
+            self.semantic_label_lookup = torch.zeros(
+                (len(semantic_label_dict),), dtype=torch.int32
+            )
+            for inst, cat in semantic_label_dict.items():
+                self.semantic_label_lookup[inst] = cat
         except NameError:
             pass
 

@@ -28,7 +28,9 @@ class SemanticMask(ObservationTransformer):
 
         layers = np.zeros(self.shape, dtype=np.uint32)
         # 1 channel, pixel == instance_id => n channel, channel == obj_id, pixel == 1
-        for inst_id, obj_id in self.env.semantic_label_lookup.items():
+        for inst_id, obj_id in enumerate(self.env.semantic_label_lookup):
+            # TODO: maybe use hashtable.index_select(keys.flatten())
+            # if it is faster
             idxs = np.where(obs["semantic"].flat == inst_id)
             layers[obj_id].flat[idxs] = 1
         obs["semantic"] = layers
