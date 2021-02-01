@@ -103,6 +103,17 @@ class NavEnv(habitat.RLEnv):
             sem.flat[i] = self.semantic_label_lookup[sem.flat[i]]
         return sem
 
+    def obs_sanity_check(self, obs):
+        for name, data in obs.items():
+            assert tuple(data.shape) == self.observation_space.spaces[name].shape
+            sp = self.observation_space.spaces[name]
+            assert (
+                data.min() >= sp.low.flat[0]
+            ), f"{name}: Min {data.min()} out of range {sp.low.flat[0]}"
+            assert (
+                data.max() <= sp.high.flat[0]
+            ), f"{name}: Max {data.max()} out of range {sp.high.flat[0]}"
+
     def step(self, action):
         obs, reward, done, info = super().step(action)
         # Only visualize if someone is viewing via webbrowser
@@ -112,6 +123,7 @@ class NavEnv(habitat.RLEnv):
         # order matters
         obs = OrderedDict((k, obs[k]) for k in self.observation_space.spaces)
         self.maybe_viz_pp(obs)
+        self.obs_sanity_check(obs)
         return obs, reward, done, info
 
     # Habitat iface that we impl
@@ -174,5 +186,6 @@ class NavEnv(habitat.RLEnv):
         # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
         # order matters
         obs = OrderedDict((k, obs[k]) for k in self.observation_space.spaces)
+        self.obs_sanity_check(obs)
         self.maybe_viz_pp(obs)
         return obs
