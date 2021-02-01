@@ -1,5 +1,7 @@
 import argparse
+import atexit
 import importlib
+import subprocess
 import multiprocessing
 import json
 import time
@@ -17,7 +19,7 @@ import util
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("master_cfg", help="Path to the master .json cfg")
-    parser.add_argument("--mode", help="Train or eval", default="train")
+    parser.add_argument("--mode", help="Train, eval, or human", default="train")
     parser.add_argument(
         "--object-store-mem", help="Size of object store in bytes", default=3e10
     )
@@ -33,6 +35,14 @@ def get_args():
     )
     args = parser.parse_args()
     return args
+
+
+def start_tb():
+    tb_proc = subprocess.Popen(
+        ["tensorboard", "--bind_all", "--logdir", "/root/ray_results"]
+    )
+    atexit.register(tb_proc.terminate)
+    return tb_proc
 
 
 def load_master_cfg(path):
@@ -74,11 +84,12 @@ def train(args, cfg):
             f"Starting: trainer: {trainer_class.__name__}: "
             f"env: {env_class.__name__} model: RAY DEFAULT"
         )
+    start_tb()
     trainer = trainer_class(env=env_class, config=cfg["ray"])
     epoch = 0
-    start_t = time.time()
     while True:
         print(f"Epoch: {epoch}")
+        start_t = time.time()
         epoch_results = trainer.train()
         num_steps = sum(epoch_results["hist_stats"]["episode_lengths"])
         print(pretty_print(epoch_results))
@@ -94,7 +105,11 @@ def train(args, cfg):
             break
 
 
-def eval(args, cfg):
+def evaluate(args, cfg):
+    pass
+
+
+def human(args, cfg):
     pass
 
 
@@ -114,7 +129,9 @@ def main():
     if args.mode == "train":
         train(args, cfg)
     elif args.mode == "eval":
-        eval(args, cfg)
+        evaluate(args, cfg)
+    elif args.mode == "human":
+        human(args, cfg)
     else:
         raise NotImplementedError(f"Invalid mode: {args.mode}")
 
