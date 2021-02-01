@@ -83,20 +83,24 @@ def concat_h_from_paths(img_paths: List[str]) -> np.ndarray:
 
 def gen() -> Generator[bytes, None, None]:
     while True:
-        if os.path.isdir(RENDER_ROOT):
-            render_dirs = [f.path for f in os.scandir(RENDER_ROOT) if f.is_dir()]
-            img_paths = [sorted(glob.glob(f"{d}/*.jpg")) for d in render_dirs]
-        if any(img_paths):
-            # Concatenate images in the same dir (rgb, graph, etc) horizontally
-            # and concatenate different dirs (worker1, worker2, etc) vertically
-            h_imgs = [concat_h_from_paths(d) for d in img_paths]
-            final_img = concat_v_from_imgs(h_imgs)
-            buf = io.BytesIO()
-            final_img.save(buf, format="jpeg")
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + buf.getvalue() + b"\r\n"
-            )
+        try:
+            if os.path.isdir(RENDER_ROOT):
+                render_dirs = [f.path for f in os.scandir(RENDER_ROOT) if f.is_dir()]
+                img_paths = [sorted(glob.glob(f"{d}/*.jpg")) for d in render_dirs]
+            if any(img_paths):
+                # Concatenate images in the same dir (rgb, graph, etc) horizontally
+                # and concatenate different dirs (worker1, worker2, etc) vertically
+                h_imgs = [concat_h_from_paths(d) for d in img_paths]
+                final_img = concat_v_from_imgs(h_imgs)
+                buf = io.BytesIO()
+                final_img.save(buf, format="jpeg")
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + buf.getvalue() + b"\r\n"
+                )
+        except Exception as e:
+            print("Render server failed to serve image")
+            print(e)
 
 
 @app.route("/video_feed")
