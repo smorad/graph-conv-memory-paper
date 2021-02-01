@@ -2,20 +2,26 @@
     "ray": {
         "env_config": {
             "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_train_autoencoder.yaml",
-            "preprocessor": {
-                "module": "preprocessors.noop",
-                "class": "NoopPP"
+            "preprocessors": {
+                "semantic": {
+                    "module": "preprocessors.sem_onehot",
+                    "class": "SemanticOnehot"
+                },
+                "semantic": {
+                    "module": "preprocessors.quantized_depth",
+                    "class": "QuantizedDepth"
+                },
+                "ghost_rgb": {
+                    "module": "preprocessors.ghost_rgb",
+                    "class": "GhostRGB"
+                }
             }
         }, 
         "num_workers": 4,
         "num_gpus_per_worker": 0.5,
         "framework": "torch",
-	"train_batch_size": 64,
-	"rollout_fragment_length": 64,
-	"sgd_minibatch_size": 32,
         "model": {
-	    "framestack": false,
-	    "custom_model": "ray_vae"
+	    "framestack": false
 	}
     },
     "env_wrapper": {

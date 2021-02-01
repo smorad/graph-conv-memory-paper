@@ -62,12 +62,18 @@ def train(args, cfg):
 
     env_class = util.load_class(cfg, "env_wrapper")
     trainer_class = util.load_class(cfg, "trainer")
-    model_class = util.load_class(cfg, "model")
-    ModelCatalog.register_custom_model(model_class.__name__, model_class)
-    print(
-        f"Starting: trainer: {trainer_class.__name__}: "
-        f"env: {env_class.__name__} model: {model_class.__name__}"
-    )
+    if "model" in cfg:
+        model_class = util.load_class(cfg, "model")
+        ModelCatalog.register_custom_model(model_class.__name__, model_class)
+        print(
+            f"Starting: trainer: {trainer_class.__name__}: "
+            f"env: {env_class.__name__} model: {model_class.__name__}"
+        )
+    else:
+        print(
+            f"Starting: trainer: {trainer_class.__name__}: "
+            f"env: {env_class.__name__} model: RAY DEFAULT"
+        )
     trainer = trainer_class(env=env_class, config=cfg["ray"])
     epoch = 0
     start_t = time.time()

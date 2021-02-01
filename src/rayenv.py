@@ -139,8 +139,8 @@ class NavEnv(habitat.RLEnv):
             # TODO: We can't have negative numbers
             # find out what -1 actually means
             semantic_label_dict[-1] = 0
-            self.semantic_label_lookup = torch.zeros(
-                (len(semantic_label_dict),), dtype=torch.int32
+            self.semantic_label_lookup = np.zeros(
+                (len(semantic_label_dict),), dtype=np.int32
             )
             for inst, cat in semantic_label_dict.items():
                 self.semantic_label_lookup[inst] = cat
