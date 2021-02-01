@@ -9,6 +9,7 @@ import server.render
 import os
 import inspect
 from ray.tune.logger import pretty_print
+from ray.rllib.models import ModelCatalog
 
 import util
 
@@ -61,11 +62,12 @@ def train(args, cfg):
 
     env_class = util.load_class(cfg, "env_wrapper")
     trainer_class = util.load_class(cfg, "trainer")
-    print(f"{trainer_class.__name__}: {env_class.__name__}")
-    from ray.rllib.models import ModelCatalog
-    from models.ray_vae import RayVAE
-
-    ModelCatalog.register_custom_model("ray_vae", RayVAE)
+    model_class = util.load_class(cfg, "model")
+    ModelCatalog.register_custom_model(model_class.__name__, model_class)
+    print(
+        f"Starting: trainer: {trainer_class.__name__}: "
+        f"env: {env_class.__name__} model: {model_class.__name__}"
+    )
     trainer = trainer_class(env=env_class, config=cfg["ray"])
     epoch = 0
     start_t = time.time()

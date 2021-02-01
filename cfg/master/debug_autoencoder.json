@@ -17,7 +17,7 @@
             "framestack": false
         },
         "model": {
-	    "custom_model": "ray_vae"
+	    "custom_model": "RayVAE"
 	}
     },
     "env_wrapper": {
@@ -27,6 +27,10 @@
     "trainer": {
        "module": "ray.rllib.agents.ppo", 
        "class": "PPOTrainer"
+    },
+    "model": {
+       "module": "models.ray_vae",
+       "class": "RayVAE"
     },
     "max_epochs": 10
 }

@@ -1,7 +1,5 @@
 from torchvision.models import resnext50_32x4d
 from torchvision.models.resnet import ResNet
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
-from ray.rllib.models import ModelCatalog
 
 import torch
 from torch import nn
