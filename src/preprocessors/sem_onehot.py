@@ -7,6 +7,7 @@ class SemanticOnehot(ObservationTransformer):
     def __init__(self, env, num_cats=42):
         self.env = env
         self.num_cats = num_cats
+        self.dtype = np.int32
         super().__init__()
 
     def transform_observation_space(self, obs_space):
@@ -15,7 +16,7 @@ class SemanticOnehot(ObservationTransformer):
 
         self.shape = (self.num_cats,)
         obs_space.spaces["semantic"] = spaces.Box(
-            low=0, high=1, shape=self.shape, dtype=np.int32
+            low=0, high=1, shape=self.shape, dtype=self.dtype
         )
         return obs_space
 
@@ -25,7 +26,7 @@ class SemanticOnehot(ObservationTransformer):
 
         uniqs = np.unique(obs["semantic"].flat)
         detected_cats = self.env.semantic_label_lookup[uniqs]
-        output = np.zeros(self.shape, dtype=np.int32)
+        output = np.zeros(self.shape, dtype=self.dtype)
         output[detected_cats] = 1
         obs["semantic"] = output
         return obs
