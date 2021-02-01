@@ -24,8 +24,9 @@ RUN pip3 install torch==${TORCH}+${CUDA} \
     torch_geometric
 #RUN cd /root/habitat-sim && python3 examples/example.py
 
-# Build habitat-lab
-RUN cd /root/habitat-lab && pip3 install -e .
+# Build habitat-lab and install habitat-baselines deps
+RUN cd /root/habitat-lab && pip3 install -e . \
+    && pip3 install lmdb webdataset ifcfg
 
 # Ray rllib
 RUN pip3 install gputil ray[rllib]

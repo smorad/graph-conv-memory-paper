@@ -25,6 +25,7 @@ docker run \
     --shm-size 32g \
     -p 8265:8265 \
     -p 5000:5000 \
+    -p 6006:6006 \
     -v ${SCENE_DATASET_PATH}:/root/scene_datasets \
     -ti ray_habitat:latest bash
 
