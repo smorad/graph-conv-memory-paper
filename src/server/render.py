@@ -23,6 +23,12 @@ app = Flask(__name__)
 socketio = SocketIO(app)
 
 
+@socketio.on("action_input", namespace="/")
+def action_input(msg) -> None:
+    char = chr(msg["data"])
+    print(f"GOT ACTION: {char}")
+
+
 # SocketIO functions use a lock file for a web client connection
 # This ensures we are not wasting cycles producing images if there
 # are no viewers
@@ -109,9 +115,11 @@ def video_feed():
 
 
 def main():
+    """
     logging.getLogger("socketio").setLevel(logging.ERROR)
     logging.getLogger("engineio").setLevel(logging.ERROR)
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    """
     socketio.run(app, host="0.0.0.0", debug=True, use_reloader=False)
 
 

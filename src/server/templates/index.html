@@ -3,14 +3,30 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/3.0.1/socket.io.min.js"></script>
     <script type="text/javascript" charset="utf-8">
 	var socket = io();
-	socket.on('connect', function() {
-	    socket.emit('my event', {data: 'I\'m connected!'});
-	});
+
+	function send_action(e) {
+	  // Send keypress to socketio backend
+	  var keynum;
+
+	  if(window.event) { // IE                  
+	    keynum = e.keyCode;
+	  } else if(e.which){ // Netscape/Firefox/Opera                 
+	    keynum = e.which;
+	  }
+	  socket.emit('action_input', {data: keynum});
+	  return false;
+	}
+
     </script>
     <title>Video Streaming Demonstration</title>
   </head>
   <body>
     <h1>Video Streaming Demonstration</h1>
     <img src="{{ url_for('video_feed') }}">
+    <br>   
+    Move: W,A,S,D <br>
+    Look: E,Q <br>
+    Stop: Spacebar <br>
+    <input type="text" id="action" name="action" onkeypress="return send_action(event)" />
   </body>
 </html>
