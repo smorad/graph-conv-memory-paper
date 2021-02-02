@@ -18,6 +18,7 @@ import logging
 RENDER_ROOT = "/dev/shm/render/"
 CLIENT_LOCK = Path(f"{RENDER_ROOT}/client_conn.lock")
 conn_clients = 0
+ACTION_QUEUE = None
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -25,8 +26,12 @@ socketio = SocketIO(app)
 
 @socketio.on("action_input", namespace="/")
 def action_input(msg) -> None:
+    global ACTION_QUEUE
     char = chr(msg["data"])
-    print(f"GOT ACTION: {char}")
+    # print(f"GOT ACTION: {char}")
+    if not ACTION_QUEUE:
+        print("Action queue does not exist, interactive control does not work")
+    ACTION_QUEUE.put(char)  # type: ignore
 
 
 # SocketIO functions use a lock file for a web client connection
@@ -114,12 +119,12 @@ def video_feed():
     return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
-def main():
-    """
+def main(action_queue=None):
     logging.getLogger("socketio").setLevel(logging.ERROR)
     logging.getLogger("engineio").setLevel(logging.ERROR)
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
-    """
+    global ACTION_QUEUE
+    ACTION_QUEUE = action_queue
     socketio.run(app, host="0.0.0.0", debug=True, use_reloader=False)
 
 

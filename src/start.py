@@ -109,8 +109,28 @@ def evaluate(args, cfg):
     pass
 
 
-def human(args, cfg):
-    pass
+def human(args, cfg, queue):
+    env_class = util.load_class(cfg, "env_wrapper")
+    env = env_class(cfg=cfg["ray"]["env_config"])
+    ep = 0
+    done = False
+    action_map = {"w": 0, "a": 1, "d": 2, "q": 3, "e": 4, " ": 5}
+    while True:
+        print(f"Episode: {ep}")
+        env.reset()
+        while not done:
+            # Episode
+            user_action = queue.get()
+            if user_action not in action_map:
+                print(f"Invalid action {user_action}")
+                continue
+
+            env_action = action_map[user_action]
+            obs, reward, done, info = env.step(env_action)
+            print(reward, done, info)
+
+        print(f"Episode {ep} done")
+        done = False
 
 
 def main():
@@ -121,9 +141,8 @@ def main():
     # Rendering obs to website for remote debugging
     shutil.rmtree(server.render.RENDER_ROOT, ignore_errors=True)
     os.makedirs(server.render.RENDER_ROOT, exist_ok=True)
-    render_server = multiprocessing.Process(
-        target=server.render.main,
-    )
+    q = multiprocessing.Queue()
+    render_server = multiprocessing.Process(target=server.render.main, args=(q,))
     render_server.start()
 
     if args.mode == "train":
@@ -131,7 +150,7 @@ def main():
     elif args.mode == "eval":
         evaluate(args, cfg)
     elif args.mode == "human":
-        human(args, cfg)
+        human(args, cfg, q)
     else:
         raise NotImplementedError(f"Invalid mode: {args.mode}")
 
