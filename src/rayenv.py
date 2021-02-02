@@ -153,6 +153,9 @@ class NavEnv(habitat.RLEnv):
                 int(obj.id.split("_")[-1]): obj.category.index()
                 for obj in scene.objects
             }
+            self.label_to_str = {
+                int(obj.id.split("_")[-1]): obj.category.name() for obj in scene.objects
+            }
             # TODO: We can't have negative numbers
             # find out what -1 actually means
             semantic_label_dict[-1] = 0

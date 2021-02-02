@@ -1,7 +1,7 @@
 {
     "ray": {
         "env_config": {
-            "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_debug_autoencoder.yaml",
+            "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_human.yaml",
             "preprocessors": {
                 "compass": {
                     "module": "preprocessors.compass_fix",

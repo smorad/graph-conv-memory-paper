@@ -127,7 +127,13 @@ def human(args, cfg, act_q, resp_q):
 
             env_action = action_map[user_action]
             obs, reward, done, info = env.step(env_action)
-            resp_q.put({"reward": reward})
+            resp_q.put(
+                {
+                    "reward": reward,
+                    "success": info["success"],
+                    "target": env.label_to_str.get(obs["objectgoal"][0], -1),
+                }
+            )
             print(reward, done, info)
 
         print(f"Episode {ep} done")
