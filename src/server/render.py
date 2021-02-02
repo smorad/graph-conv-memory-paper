@@ -2,11 +2,12 @@ import os
 import time
 import glob
 import io
+import multiprocessing
 from flask import Flask, render_template, Response
 from flask_socketio import SocketIO, emit
 from PIL import Image
 from pathlib import Path
-from typing import List, Generator, Union
+from typing import List, Generator, Union, Dict, Any
 import numpy as np
 import logging
 
@@ -18,7 +19,8 @@ import logging
 RENDER_ROOT = "/dev/shm/render/"
 CLIENT_LOCK = Path(f"{RENDER_ROOT}/client_conn.lock")
 conn_clients = 0
-ACTION_QUEUE = None
+ACTION_QUEUE: Union[multiprocessing.Queue, None]
+RESPONSE_QUEUE: Union[multiprocessing.Queue, None]
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -26,12 +28,15 @@ socketio = SocketIO(app)
 
 @socketio.on("action_input", namespace="/")
 def action_input(msg) -> None:
-    global ACTION_QUEUE
+    global ACTION_QUEUE, RESPONSE_QUEUE
+
     char = chr(msg["data"])
-    # print(f"GOT ACTION: {char}")
     if not ACTION_QUEUE:
         print("Action queue does not exist, interactive control does not work")
     ACTION_QUEUE.put(char)  # type: ignore
+
+    env_data: Dict[str, Any] = RESPONSE_QUEUE.get()
+    emit("env_response", env_data)
 
 
 # SocketIO functions use a lock file for a web client connection
@@ -119,12 +124,13 @@ def video_feed():
     return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
-def main(action_queue=None):
+def main(action_queue=None, response_queue=None):
     logging.getLogger("socketio").setLevel(logging.ERROR)
     logging.getLogger("engineio").setLevel(logging.ERROR)
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
-    global ACTION_QUEUE
+    global ACTION_QUEUE, RESPONSE_QUEUE
     ACTION_QUEUE = action_queue
+    RESPONSE_QUEUE = response_queue
     socketio.run(app, host="0.0.0.0", debug=True, use_reloader=False)
 
 

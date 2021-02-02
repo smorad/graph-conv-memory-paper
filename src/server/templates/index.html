@@ -4,6 +4,10 @@
     <script type="text/javascript" charset="utf-8">
 	var socket = io();
 
+    	socket.on('env_response', function(data){
+		document.getElementById("env_resp").value = JSON.stringify(data)
+	});
+
 	function send_action(e) {
 	  // Send keypress to socketio backend
 	  var keynum;
@@ -27,6 +31,10 @@
     Move: W,A,S,D <br>
     Look: E,Q <br>
     Stop: Spacebar <br>
+    <label for="action">User Action</label>
     <input type="text" id="action" name="action" onkeypress="return send_action(event)" />
+    <br>
+    <label for="env_resp">Simulator Response</label>
+    <input type="text" id="env_resp" name="env_resp" />
   </body>
 </html>
