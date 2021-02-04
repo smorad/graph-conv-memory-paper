@@ -127,11 +127,15 @@ def human(args, cfg, act_q, resp_q):
 
             env_action = action_map[user_action]
             obs, reward, done, info = env.step(env_action)
+            info_wo_map = info.copy()
+            # Not JSON serializable
+            info_wo_map.pop("top_down_map", None)
             resp_q.put(
                 {
                     "reward": reward,
                     "success": info["success"],
                     "target": env.label_to_str.get(obs["objectgoal"][0], -1),
+                    **info_wo_map,
                 }
             )
             print(reward, done, info)
