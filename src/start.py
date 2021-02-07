@@ -72,6 +72,7 @@ def train(args, cfg):
 
     env_class = util.load_class(cfg, "env_wrapper")
     trainer_class = util.load_class(cfg, "trainer")
+    cfg["ray"]["callbacks"] = util.load_class(cfg, "callback")
     if "model" in cfg:
         model_class = util.load_class(cfg, "model")
         ModelCatalog.register_custom_model(model_class.__name__, model_class)

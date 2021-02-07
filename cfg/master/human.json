@@ -39,5 +39,9 @@
     "env_wrapper": {
         "module": "rayenv",
         "class": "NavEnv"
+    },
+    "callback": {
+	"module": "custom_metrics",
+	"class": "CustomMetrics"
     }
 }

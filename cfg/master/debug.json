@@ -50,5 +50,9 @@
        "module": "ray.rllib.agents.ppo", 
        "class": "PPOTrainer"
     },
+    "callback": {
+	"module": "custom_metrics",
+	"class": "CustomMetrics"
+    },
     "max_epochs": 10
 }

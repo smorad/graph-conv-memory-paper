@@ -53,5 +53,9 @@
        "module": "ray.rllib.agents.impala", 
        "class": "ImpalaTrainer"
     },
+    "callback": {
+	"module": "custom_metrics",
+	"class": "CustomMetrics"
+    },
     "max_epochs": 100000
 }
