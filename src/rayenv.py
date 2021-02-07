@@ -21,6 +21,7 @@ class NavEnv(habitat.RLEnv):
     def __init__(self, cfg):
         self.visualize_lvl = cfg["visualize"]
         self.hab_cfg = habitat.get_config(config_paths=cfg["hab_cfg_path"])
+        self.rewards = [util.load_class(cfg["rewards"], k)() for k in cfg["rewards"]]
         # TODO: Set different random seeds for different workers (based on pid maybe)
         super().__init__(self.hab_cfg)
 
@@ -33,10 +34,10 @@ class NavEnv(habitat.RLEnv):
         # Patch action space since habitat actions use custom spaces for some reason
         # TODO: these should translate for continuous/arbitrary action distribution
         self.action_space = discrete.Discrete(len(self.hab_cfg.TASK.POSSIBLE_ACTIONS))
+        # Load reward functions
+        [r.on_env_load(self) for r in self.rewards]
         # Observation transformers let us modify observations without
         # adding new sensors
-        # TODO: SemanticMask adds takes startup time from 20s to 160s
-        # and OOMs gpus. Likely due to atari preprocessor
         self.preprocessors = [
             util.load_class(cfg["preprocessors"], k)(self) for k in cfg["preprocessors"]
         ]
@@ -128,12 +129,17 @@ class NavEnv(habitat.RLEnv):
 
     # Habitat iface that we impl
     def get_reward_range(self):
-        return [0, 1.0]
+        low, high = (0, 0)
+        for reward_fn in self.rewards:
+            l, h = reward_fn.get_reward_range()
+            low += l
+            high += h
+
+        return [low, high]
 
     def get_reward(self, observations):
-        if self.habitat_env.get_metrics()["success"]:
-            return 1.0
-        return 0.0
+        rewards = [r.get_reward(observations) for r in self.rewards]
+        return np.sum(rewards)
 
     def get_done(self, observations):
         return (
@@ -184,6 +190,8 @@ class NavEnv(habitat.RLEnv):
     def reset(self):
         self.maybe_build_sem_lookup_table()
         obs = super().reset()
+        # Reset reward functions
+        [r.reset() for r in self.rewards]
         self.maybe_viz(obs)
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.preprocessors)
         # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614

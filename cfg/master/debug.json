@@ -23,6 +23,16 @@
                     "module": "preprocessors.objectgoal",
                     "class": "ObjectGoalBoolean"
                 }
+            },
+	    "rewards": {
+                "stop_goal": {
+		    "module": "rewards.basic",
+	            "class":  "BasicReward"
+	        },
+		"goal_path": {
+		    "module": "rewards.path",
+		    "class": "PathReward"
+		}
             }
         }, 
         "num_workers": 0,
