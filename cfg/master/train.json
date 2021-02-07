@@ -1,7 +1,7 @@
 {
     "ray": {
         "env_config": {
-            "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_debug_autoencoder.yaml",
+            "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_train_val_mini.yaml",
             "preprocessors": {
                 "compass": {
                     "module": "preprocessors.compass_fix",
@@ -18,23 +18,30 @@
                 "ghost_rgb": {
                     "module": "preprocessors.ghost_rgb",
                     "class": "GhostRGB"
+                },
+                "objectgoal": {
+                    "module": "preprocessors.objectgoal",
+                    "class": "ObjectGoalBoolean"
                 }
             }
         }, 
-        "num_workers": 0,
-        "num_gpus_per_worker": 1,
         "framework": "torch",
         "model": {
-            "framestack": false
-        }
+	    "framestack": false
+	},
+        "num_workers": 24,
+        "num_gpus_per_worker": 0.12,
+	"num_gpus": 1,
+	"rollout_fragment_length": 256,
+	"train_batch_size": 4096
     },
     "env_wrapper": {
         "module": "rayenv",
         "class": "NavEnv"
     },
     "trainer": {
-       "module": "ray.rllib.agents.ppo", 
-       "class": "PPOTrainer"
+       "module": "ray.rllib.agents.impala", 
+       "class": "ImpalaTrainer"
     },
-    "max_epochs": 10
+    "max_epochs": 100000
 }
