@@ -15,6 +15,7 @@ import ray
 
 from server.render import RENDER_ROOT, CLIENT_LOCK
 import util
+from semantic_colors import COLORS64
 
 
 class NavEnv(habitat.RLEnv):
@@ -64,14 +65,7 @@ class NavEnv(habitat.RLEnv):
                 )
             elif key == "semantic":
                 sem = self.convert_sem_obs(obs)
-                # This needs to be really fast
-                img = np.ones((*sem.shape, 3), dtype=np.uint8)
-                norm = 255 // 40
-                min_px = 20  # so things aren't too dark
-                # for each channel
-                img[:, :, 0] = min_px + sem * norm % 255
-                img[:, :, 1] = min_px + sem * norm % 170
-                img[:, :, 2] = min_px + sem * norm % 85
+                img = COLORS64[sem.flat].reshape(*sem.shape, 3)
             else:
                 continue
 
@@ -100,8 +94,7 @@ class NavEnv(habitat.RLEnv):
         if "semantic" not in obs:
             return
         sem = obs["semantic"].copy()
-        for i in range(len(sem.flat)):
-            sem.flat[i] = self.semantic_label_lookup[sem.flat[i]]
+        sem = self.instance_to_cat[sem.flat].reshape(obs["semantic"].shape)
         return sem
 
     def obs_sanity_check(self, obs):
@@ -155,21 +148,23 @@ class NavEnv(habitat.RLEnv):
             scene = self._env.sim.semantic_annotations()
             # See https://github.com/niessner/Matterport/blob/master/metadata/mpcat40.tsv
             # for human-readable mapping
-            semantic_label_dict = {
-                int(obj.id.split("_")[-1]): obj.category.index()
-                for obj in scene.objects
-            }
-            self.label_to_str = {
-                int(obj.id.split("_")[-1]): obj.category.name() for obj in scene.objects
-            }
-            # TODO: We can't have negative numbers
-            # find out what -1 actually means
-            semantic_label_dict[-1] = 0
-            self.semantic_label_lookup = np.zeros(
-                (len(semantic_label_dict),), dtype=np.int32
-            )
-            for inst, cat in semantic_label_dict.items():
-                self.semantic_label_lookup[inst] = cat
+            self.instance_to_cat = np.zeros((len(scene.objects),), dtype=np.int)
+            # 42 cats and 1 for error
+            self.cat_to_str = np.zeros((43,), dtype=object)
+            self.cat_to_str[-1] = "habitat_error"
+
+            for obj in scene.objects:
+                inst = int(obj.id.split("_")[-1])  # instance
+                cat = obj.category.index()  # category
+                cat_str = obj.category.name()  # str
+
+                # Append -1 entries to end, space should exist for them
+                if cat < 0:
+                    cat = self.cat_to_str.size - 1
+
+                self.instance_to_cat[inst] = cat
+                self.cat_to_str[cat] = cat_str
+
         except NameError:
             pass
 
@@ -190,6 +185,7 @@ class NavEnv(habitat.RLEnv):
     def reset(self):
         self.maybe_build_sem_lookup_table()
         obs = super().reset()
+        # print('object', self.cat_to_str[obs['objectgoal']],obs['objectgoal'])
         # Reset reward functions
         [r.reset() for r in self.rewards]
         self.maybe_viz(obs)
@@ -199,4 +195,5 @@ class NavEnv(habitat.RLEnv):
         obs = OrderedDict((k, obs[k]) for k in self.observation_space.spaces)
         self.obs_sanity_check(obs)
         self.maybe_viz_pp(obs)
+        # print('object', self.cat_to_str[obs['objectgoal']],obs['objectgoal'])
         return obs

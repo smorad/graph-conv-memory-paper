@@ -3,11 +3,11 @@ from gym import spaces
 from habitat_baselines.common.obs_transformers import ObservationTransformer
 
 
-class SemanticOnehot(ObservationTransformer):
+class SemanticFloat(ObservationTransformer):
     def __init__(self, env, num_cats=43):
         self.env = env
         self.num_cats = num_cats
-        self.dtype = np.int32
+        self.dtype = np.float32
         super().__init__()
 
     def transform_observation_space(self, obs_space):
@@ -24,10 +24,12 @@ class SemanticOnehot(ObservationTransformer):
         if "semantic" not in obs:
             return obs
 
-        uniqs = np.unique(obs["semantic"])
+        uniqs, counts = np.unique(obs["semantic"])
         detected_cats = self.env.instance_to_cat[uniqs]
         output = np.zeros(self.shape, dtype=self.dtype)
-        output[detected_cats] = 1
+        for i in range(len(detected_cats)):
+            output[detected_cats[i]] += counts[i]
+        output /= output.sum()
         obs["semantic"] = output
         return obs
 

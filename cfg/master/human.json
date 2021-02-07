@@ -18,6 +18,10 @@
                 "ghost_rgb": {
                     "module": "preprocessors.ghost_rgb",
                     "class": "GhostRGB"
+                },
+                "objectgoal": {
+                    "module": "preprocessors.objectgoal",
+                    "class": "ObjectGoalBoolean"
                 }
             },
 	    "rewards": {
