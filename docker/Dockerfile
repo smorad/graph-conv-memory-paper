@@ -29,7 +29,7 @@ RUN cd /root/habitat-lab && pip3 install -e . \
     && pip3 install lmdb webdataset ifcfg
 
 # Ray rllib
-RUN pip3 install gputil ray[rllib]
+RUN pip3 install gputil https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-2.0.0.dev0-cp38-cp38-manylinux2014_x86_64.whl
 
 # Detectron
 RUN pip3 install 'git+https://github.com/facebookresearch/detectron2.git'
