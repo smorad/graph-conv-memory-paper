@@ -8,8 +8,8 @@
                     "class": "CompassFix"
                 },
                 "semantic": {
-                    "module": "preprocessors.sem_onehot",
-                    "class": "SemanticOnehot"
+                    "module": "preprocessors.mesh_semantic_downsample",
+                    "class": "QuantizedSemanticMask"
                 },
                 "depth": {
                     "module": "preprocessors.quantized_depth",
@@ -18,10 +18,6 @@
                 "ghost_rgb": {
                     "module": "preprocessors.ghost_rgb",
                     "class": "GhostRGB"
-                },
-                "objectgoal": {
-                    "module": "preprocessors.objectgoal",
-                    "class": "ObjectGoalBoolean"
                 }
             },
 	    "rewards": {
