@@ -6,7 +6,7 @@ from habitat_baselines.common.obs_transformers import ObservationTransformer
 
 
 class QuantizedDepth(ObservationTransformer):
-    def __init__(self, env, height_fac=80, width_fac=40):
+    def __init__(self, env, height_fac=10, width_fac=10):
         self.env = env
         self.dtype = np.float32
         self.facs = np.array((height_fac, width_fac), dtype=np.int32)
@@ -47,7 +47,6 @@ class QuantizedDepth(ObservationTransformer):
             .squeeze()
             .numpy()
         )
-        # Pytorch doesn't implement min pool, so we use this trick
         obs["depth"] = quant_depth
         self.quant_depth = quant_depth
         return obs

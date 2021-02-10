@@ -87,19 +87,21 @@ class NavEnv(habitat.RLEnv):
                 # We do this so we don't accidentally load a half-written img
                 os.replace(tmp_impath, impath)
 
-    def convert_sem_obs(self, obs):
+    def convert_sem_obs(self, obs, in_place=False):
         """Convert the habitat semantic observation from
         instance IDs to category IDs"""
         # TODO: Paralellize this using worker pools
         if "semantic" not in obs:
             return
-        sem = obs["semantic"].copy()
-        sem = self.instance_to_cat[sem.flat].reshape(obs["semantic"].shape)
+        sem = obs["semantic"]
+        sem = self.instance_to_cat[sem.flat].reshape(sem.shape)
         return sem
 
     def obs_sanity_check(self, obs):
         for name, data in obs.items():
-            assert tuple(data.shape) == self.observation_space.spaces[name].shape
+            assert (
+                tuple(data.shape) == self.observation_space.spaces[name].shape
+            ), f"Shape mismatch: declared: {tuple(data.shape)}, actual: {self.observation_space.spaces[name].shape}"
             sp = self.observation_space.spaces[name]
             assert (
                 data.min() >= sp.low.flat[0]
