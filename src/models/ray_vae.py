@@ -67,7 +67,7 @@ class RayVAE(TorchModelV2, VAE):
         # [batch, channel, cols, rows]
         batch, channels, cols, rows = (  # type: ignore
             semantic.shape[0],
-            semantic.shape[1] + 1 + 1,
+            semantic.shape[1] + 1,
             *semantic.shape[2:],  # type : ignore
         )
 
@@ -86,13 +86,28 @@ class RayVAE(TorchModelV2, VAE):
         self, policy_loss: List[torch.Tensor], loss_inputs
     ) -> List[torch.Tensor]:
         if torch.abs(policy_loss[0]) > 1e-8:
-            print("Warning -- nonzero policy loss: {policy_loss[0]}, zeroing it out...")
+            print("Warning -- nonzero policy loss: {policy_loss[0]}")
 
         # BCE = nn.functional.binary_cross_entropy(
         #        self.curr_ae_output, self.curr_ae_input, size_average=False).to(policy_loss[0].device)
-        MSE = nn.functional.mse_loss(
-            self.curr_ae_output, self.curr_ae_input, reduction="sum"
+        # How important is depth compared to semantic
+        depth_to_sem_ratio = 1 / 4
+        # Weight 1x depth image the same as 1x semantic image
+        sem_factor = 1 / self.curr_ae_output.shape[1] - 1
+        MSE_sem = (
+            nn.functional.mse_loss(
+                self.curr_ae_output[:, :-1, :, :], self.curr_ae_input[:, :-1, :, :]
+            )
+            * sem_factor
+            * (1 / depth_to_sem_ratio)
         )
+        MSE_depth = nn.functional.mse_loss(
+            self.curr_ae_output[:, -1, :, :], self.curr_ae_input[:, -1, :, :]
+        )
+        MSE = MSE_sem + MSE_depth
+        # MSE = nn.functional.mse_loss(
+        #    self.curr_ae_output, self.curr_ae_input, reduction="sum"
+        # )
 
         # see Appendix B from VAE paper:
         # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -100,7 +115,7 @@ class RayVAE(TorchModelV2, VAE):
         KLD = -0.5 * torch.mean(
             1 + self.curr_logvar - self.curr_mu.pow(2) - self.curr_logvar.exp()
         )
-        combined = MSE + KLD - policy_loss[0]
+        combined = MSE + KLD
         print(f"Loss: {combined.item()}")
 
         return [combined]
