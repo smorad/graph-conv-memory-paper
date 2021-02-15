@@ -12,6 +12,7 @@ import os
 import inspect
 from ray.tune.logger import pretty_print
 from ray.rllib.models import ModelCatalog
+from ray.rllib.rollout import rollout
 
 import util
 
@@ -107,7 +108,43 @@ def train(args, cfg):
 
 
 def evaluate(args, cfg):
-    pass
+    ray.init(
+        dashboard_host="0.0.0.0",
+        local_mode=args.local,
+        object_store_memory=args.object_store_mem,
+    )
+
+    env_class = util.load_class(cfg, "env_wrapper")
+    trainer_class = util.load_class(cfg, "trainer")
+    cfg["ray"]["callbacks"] = util.load_class(cfg, "callback")
+    if "model" in cfg:
+        model_class = util.load_class(cfg, "model")
+        ModelCatalog.register_custom_model(model_class.__name__, model_class)
+        print(
+            f"Starting: trainer: {trainer_class.__name__}: "
+            f"env: {env_class.__name__} model: {model_class.__name__}"
+        )
+    else:
+        print(
+            f"Starting: trainer: {trainer_class.__name__}: "
+            f"env: {env_class.__name__} model: RAY DEFAULT"
+        )
+    start_tb()
+    trainer = trainer_class(env=env_class, config=cfg["ray"])
+
+    if "checkpoint" not in cfg:
+        raise Exception("Checkpoint required for evaluation")
+    if "num_episodes" not in cfg:
+        raise Exception("Did you forget to set `num_episodes`?")
+
+    trainer.restore(cfg["checkpoint"])
+
+    rollout(
+        agent=trainer,
+        env_name="habitat_derivative",
+        num_steps=None,
+        num_episodes=cfg["num_episodes"],
+    )
 
 
 def human(args, cfg, act_q, resp_q):
