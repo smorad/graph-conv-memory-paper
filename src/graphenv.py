@@ -53,7 +53,7 @@ class GraphNavEnv(NavEnv):
         obs, reward, done, info = super().step(action)
         # Only visualize if someone is viewing via webbrowser
         if CLIENT_LOCK.exists():
-            if self.visualize >= 2 and obs.get("top_down_map") is not None:
+            if self.visualize_lvl >= 2 and info.get("top_down_map") is not None:
                 self.add_node_to_map(info)
                 self.emit_debug_graph(info)
             self.add_node(obs, info)
