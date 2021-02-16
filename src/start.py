@@ -10,9 +10,10 @@ import ray
 import server.render
 import os
 import inspect
+import torch
 from ray.tune.logger import pretty_print
 from ray.rllib.models import ModelCatalog
-from ray.rllib.rollout import rollout
+from ray.rllib.rollout import rollout, RolloutSaver
 
 import util
 
@@ -33,6 +34,13 @@ def get_args():
         default=1,
         type=int,
         help="Visualization level, higher == more visualization == slower",
+    )
+    parser.add_argument(
+        "--export-torch",
+        "-e",
+        default=None,
+        type=str,
+        help="Export saved rllib model as torch to this path",
     )
     args = parser.parse_args()
     return args
@@ -81,6 +89,7 @@ def train(args, cfg):
             f"Starting: trainer: {trainer_class.__name__}: "
             f"env: {env_class.__name__} model: {model_class.__name__}"
         )
+        cfg["ray"]["model"]["custom_model"] = model_class
     else:
         print(
             f"Starting: trainer: {trainer_class.__name__}: "
@@ -124,6 +133,7 @@ def evaluate(args, cfg):
             f"Starting: trainer: {trainer_class.__name__}: "
             f"env: {env_class.__name__} model: {model_class.__name__}"
         )
+        cfg["ray"]["model"]["custom_model"] = model_class
     else:
         print(
             f"Starting: trainer: {trainer_class.__name__}: "
@@ -138,13 +148,24 @@ def evaluate(args, cfg):
         raise Exception("Did you forget to set `num_episodes`?")
 
     trainer.restore(cfg["checkpoint"])
+    if args.export_torch:
+        print(f"Exporting torch checkpoint to {args.export_torch}")
+        torch.save(trainer.get_policy().model, args.export_torch)
+    with RolloutSaver(
+        outfile="/dev/shm/eval_output.pkl",
+        use_shelve=False,
+        target_episodes=cfg["num_episodes"],
+        save_info=False,
+    ) as rs:
+        rollout(
+            agent=trainer,
+            env_name=None,
+            num_steps=None,
+            num_episodes=cfg["num_episodes"],
+            saver=rs,
+        )
 
-    rollout(
-        agent=trainer,
-        env_name="habitat_derivative",
-        num_steps=None,
-        num_episodes=cfg["num_episodes"],
-    )
+    trainer.stop()
 
 
 def human(args, cfg, act_q, resp_q):
@@ -176,7 +197,7 @@ def human(args, cfg, act_q, resp_q):
                     "success": info["success"],
                     "target": env.cat_to_str[obs["objectgoal"][0]],
                     "target_in_view": bool(obs.get("target_in_view", [-1])[0]),
-                    **info_wo_map,
+                    # **info_wo_map,
                 }
             )
             # print(reward, done, info)
