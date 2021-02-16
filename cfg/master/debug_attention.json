@@ -8,8 +8,8 @@
                     "class": "CompassFix"
                 },
                 "semantic": {
-                    "module": "preprocessors.mesh_semantic_downsample",
-                    "class": "QuantizedSemanticMask"
+                    "module": "preprocessors.sem_onehot",
+                    "class": "SemanticOnehot"
                 },
                 "depth": {
                     "module": "preprocessors.quantized_depth",
@@ -19,10 +19,10 @@
                     "module": "preprocessors.ghost_rgb",
                     "class": "GhostRGB"
                 },
-		"train_vae": {
-		    "module": "preprocessors.dataset_collector",
-		    "class": "DataCollector"
-		}
+                "objectgoal": {
+                    "module": "preprocessors.objectgoal",
+                    "class": "ObjectGoalBoolean"
+                }
             },
 	    "rewards": {
                 "stop_goal": {
@@ -39,7 +39,8 @@
         "num_gpus_per_worker": 1,
         "framework": "torch",
         "model": {
-            "framestack": false
+            "framestack": false,
+	    "use_attention": true
         }
     },
     "env_wrapper": {
@@ -54,6 +55,5 @@
 	"module": "custom_metrics",
 	"class": "CustomMetrics"
     },
-    "checkpoint": "/root/ray_results/IMPALA_NavEnv_2021-02-08_13-59-430xkm3_k8/checkpoint_9951/checkpoint_9951",
-    "num_episodes": 10
+    "max_epochs": 10
 }

@@ -1,7 +1,7 @@
 {
     "ray": {
         "env_config": {
-            "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_train_val_mini.yaml",
+            "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_train_vae_mini.yaml",
             "preprocessors": {
                 "compass": {
                     "module": "preprocessors.compass_fix",
@@ -35,11 +35,15 @@
         "model": {
 	    "framestack": false
 	},
-        "num_workers": 8,
+        "num_workers": 16,
         "num_gpus_per_worker": 0.25,
 	"num_gpus": 1,
-	"rollout_fragment_length": 256,
-	"train_batch_size": 4096
+	"rollout_fragment_length": 128,
+	"train_batch_size": 1024,
+	"lr_schedule": [
+		[0, 0.0001],
+		[200000, 0.00002]
+	]
     },
     "env_wrapper": {
         "module": "rayenv",
@@ -51,7 +55,7 @@
     },
     "callback": {
 	"module": "custom_metrics",
-	"class": "CustomMetrics"
+	"class": "VAEMetrics"
     },
     "model": {
 	"module": "models.ray_vae",

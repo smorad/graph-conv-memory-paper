@@ -54,6 +54,6 @@
 	"module": "custom_metrics",
 	"class": "CustomMetrics"
     },
-    "checkpoint": "/root/ray_results/IMPALA_NavEnv_2021-02-08_13-59-430xkm3_k8/checkpoint_9951/checkpoint_9951",
+    "checkpoint": "/root/ray_results/IMPALA_NavEnv_2021-02-08_13-59-430xkm3_k8/checkpoint_9951",
     "num_episodes": 10
 }

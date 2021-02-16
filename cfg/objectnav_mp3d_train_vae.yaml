@@ -46,6 +46,6 @@ TASK:
 
 DATASET:
   TYPE: ObjectNav-v1
-  SPLIT: val_mini
+  SPLIT: train
   DATA_PATH: "/root/habitat-lab/data/datasets/objectnav/mp3d/v1/{split}/{split}.json.gz"
   SCENES_DIR: "/root/habitat-lab/data/scene_datasets/"

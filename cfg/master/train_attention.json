@@ -1,15 +1,15 @@
 {
     "ray": {
         "env_config": {
-            "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_debug.yaml",
+            "hab_cfg_path": "/root/vnav/cfg/objectnav_mp3d_train_val_mini.yaml",
             "preprocessors": {
                 "compass": {
                     "module": "preprocessors.compass_fix",
                     "class": "CompassFix"
                 },
                 "semantic": {
-                    "module": "preprocessors.mesh_semantic_downsample",
-                    "class": "QuantizedSemanticMask"
+                    "module": "preprocessors.sem_onehot",
+                    "class": "SemanticOnehot"
                 },
                 "depth": {
                     "module": "preprocessors.quantized_depth",
@@ -19,10 +19,10 @@
                     "module": "preprocessors.ghost_rgb",
                     "class": "GhostRGB"
                 },
-		"train_vae": {
-		    "module": "preprocessors.dataset_collector",
-		    "class": "DataCollector"
-		}
+                "objectgoal": {
+                    "module": "preprocessors.objectgoal",
+                    "class": "ObjectGoalBoolean"
+                }
             },
 	    "rewards": {
                 "stop_goal": {
@@ -35,25 +35,28 @@
 		}
             }
         }, 
-        "num_workers": 0,
-        "num_gpus_per_worker": 1,
         "framework": "torch",
         "model": {
-            "framestack": false
-        }
+	    "framestack": false,
+	    "use_attention": true
+	},
+        "num_workers": 24,
+        "num_gpus_per_worker": 0.12,
+	"num_gpus": 1,
+	"rollout_fragment_length": 256,
+	"train_batch_size": 4096
     },
     "env_wrapper": {
         "module": "rayenv",
         "class": "NavEnv"
     },
     "trainer": {
-       "module": "ray.rllib.agents.ppo", 
-       "class": "PPOTrainer"
+       "module": "ray.rllib.agents.impala", 
+       "class": "ImpalaTrainer"
     },
     "callback": {
 	"module": "custom_metrics",
 	"class": "CustomMetrics"
     },
-    "checkpoint": "/root/ray_results/IMPALA_NavEnv_2021-02-08_13-59-430xkm3_k8/checkpoint_9951/checkpoint_9951",
-    "num_episodes": 10
+    "max_epochs": 100000
 }

@@ -8,8 +8,8 @@
                     "class": "CompassFix"
                 },
                 "semantic": {
-                    "module": "preprocessors.sem_onehot",
-                    "class": "SemanticOnehot"
+                    "module": "preprocessors.mesh_semantic_downsample",
+                    "class": "QuantizedSemanticMask"
                 },
                 "depth": {
                     "module": "preprocessors.quantized_depth",
@@ -18,10 +18,6 @@
                 "ghost_rgb": {
                     "module": "preprocessors.ghost_rgb",
                     "class": "GhostRGB"
-                },
-                "objectgoal": {
-                    "module": "preprocessors.objectgoal",
-                    "class": "ObjectGoalBoolean"
                 }
             },
 	    "rewards": {
@@ -39,8 +35,8 @@
         "model": {
 	    "framestack": false
 	},
-        "num_workers": 24,
-        "num_gpus_per_worker": 0.12,
+        "num_workers": 16,
+        "num_gpus_per_worker": 0.25,
 	"num_gpus": 1,
 	"rollout_fragment_length": 256,
 	"train_batch_size": 4096
@@ -56,6 +52,10 @@
     "callback": {
 	"module": "custom_metrics",
 	"class": "CustomMetrics"
+    },
+    "model": {
+	"module": "models.ray_vae",
+	"class": "RayVAE"
     },
     "max_epochs": 100000
 }
