@@ -6,33 +6,20 @@ from torch import nn
 
 
 class VAE(nn.Module):
-    def __init__(self, image_channels=3, h_dim=512, z_dim=32):
+    # On CPU this takes 2.5ms to encode
+    # on GPU, 886 microsecs
+    def __init__(self, image_channels=3, h_dim=2048, z_dim=64):
         super().__init__()
+        self.z_dim = z_dim
         self.encoder = nn.Sequential(
-            nn.Conv2d(43 + 1, 64, 5, stride=3),  # b, 64, 10
+            nn.Conv2d(43 + 1, 128, 5, stride=3),  # b, 64, 10
             nn.ReLU(),
-            nn.Conv2d(64, 96, 4, stride=2),  # b, 96, 4, 4
+            nn.Conv2d(128, 256, 4, stride=2),  # b, 96, 4, 4
             nn.ReLU(),
-            nn.Conv2d(96, 128, 2, stride=2),  # b, 128, 2, 2
+            nn.Conv2d(256, 512, 3, stride=1),  # b, 128, 2, 2
             nn.ReLU(),
             nn.Flatten(),
         )
-
-        """
-        self.encoder = nn.Sequential(
-            nn.Conv2d(42 + 1 + 1, 64, 5, stride=3),  # b, 64, 106
-            nn.ReLU(),
-            nn.Conv2d(64, 80, 5, stride=3, padding=2),  # b, 128, 36
-            nn.ReLU(),
-            nn.Conv2d(80, 96, 5, stride=3, padding=1),  # b, 160, 12
-            nn.ReLU(),
-            nn.Conv2d(96, 112, 5, stride=3, padding=1),  # b, 192, 4
-            nn.ReLU(),
-            nn.Conv2d(112, 128, 3, stride=1),  # b, 192, 4
-            nn.ReLU(),  # Final shape (128x2x2) 512 after flattening
-            nn.Flatten(),
-        )
-        """
 
         self.fc1 = nn.Linear(h_dim, z_dim)
         self.fc2 = nn.Linear(h_dim, z_dim)
@@ -41,34 +28,13 @@ class VAE(nn.Module):
 
         self.decoder = nn.Sequential(
             nn.Unflatten(1, (h_dim // 4, 2, 2)),  # TODO: This should be variable
-            nn.ConvTranspose2d(128, 96, 2, stride=2),  # b, 128, 2, 2
+            nn.ConvTranspose2d(512, 256, 3, stride=1),  # b, 128, 2, 2
             nn.ReLU(),
-            nn.ConvTranspose2d(96, 64, 4, stride=2),  # b, 96, 4, 4
+            nn.ConvTranspose2d(256, 128, 4, stride=2),  # b, 96, 4, 4
             nn.ReLU(),
-            nn.ConvTranspose2d(64, 43 + 1, 5, stride=3),  # b, 64, 10
+            nn.ConvTranspose2d(128, 43 + 1, 5, stride=3),  # b, 64, 10
             nn.Sigmoid(),
         )
-        """
-        self.decoder = nn.Sequential(
-            nn.Unflatten(1, (h_dim // 4, 2, 2)),  # TODO: this should be variable
-            nn.ConvTranspose2d(128, 112, kernel_size=3, stride=1),  # b, 192, 14
-            nn.ReLU(),
-            nn.ConvTranspose2d(
-                112, 96, kernel_size=5, stride=3, padding=1
-            ),  # b, 192, 44
-            nn.ReLU(),
-            nn.ConvTranspose2d(
-                96, 80, kernel_size=5, stride=3, padding=1
-            ),  # b, 192, 134
-            nn.ReLU(),
-            nn.ConvTranspose2d(
-                80, 64, kernel_size=5, stride=3, padding=2
-            ),  # b, 192, 468
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 42 + 1 + 1, kernel_size=5, stride=3),  # b, 192, 468
-            # nn.Sigmoid(),
-        )
-        """
 
     def reparameterize(self, mu, logvar):
         std = logvar.mul(0.5).exp_().to(logvar.device)
