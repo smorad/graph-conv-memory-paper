@@ -101,7 +101,11 @@ def gen() -> Generator[bytes, None, None]:
     while True:
         try:
             if os.path.isdir(RENDER_ROOT):
-                render_dirs = [f.path for f in os.scandir(RENDER_ROOT) if f.is_dir()]
+                render_dirs = sorted(
+                    [f.path for f in os.scandir(RENDER_ROOT) if f.is_dir()]
+                )
+                # TODO: Select any proc, not just the first
+                render_dirs = [render_dirs[0]]
                 img_paths = [sorted(glob.glob(f"{d}/*.jpg")) for d in render_dirs]
             if any(img_paths):
                 # Concatenate images in the same dir (rgb, graph, etc) horizontally
