@@ -8,7 +8,7 @@
                     "class": "CompassFix"
                 },
                 "semantic": {
-                    "module": "preprocessors.mesh_semantic_downsample",
+                    "module": "preprocessors.quantized_mash",
                     "class": "QuantizedSemanticMask"
                 },
                 "depth": {
