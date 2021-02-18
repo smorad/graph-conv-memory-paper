@@ -18,11 +18,7 @@
                 "ghost_rgb": {
                     "module": "preprocessors.ghost_rgb",
                     "class": "GhostRGB"
-                },
-		"vae": {
-		    "module": "preprocessors.vae",
-		    "class": "PPVAE"
-		}
+                }
             },
 	    "rewards": {
                 "stop_goal": {

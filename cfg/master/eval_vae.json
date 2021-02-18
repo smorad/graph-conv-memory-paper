@@ -61,7 +61,7 @@
 	"module": "models.ray_vae",
 	"class": "RayVAE"
     },
-    "checkpoint": "/root/ray_results/vae_64z_2048h/checkpoint_901/checkpoint-901",
+    "checkpoint": "/root/ray_results/IMPALA_NavEnv_2021-02-16_14-34-173en1jagz/checkpoint_51/checkpoint-51",
     "num_episodes": 5
 
 }

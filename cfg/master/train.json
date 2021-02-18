@@ -35,11 +35,15 @@
         "model": {
 	    "framestack": false
 	},
-        "num_workers": 16,
-        "num_gpus_per_worker": 0.25,
+        "num_workers": 20,
+        "num_gpus_per_worker": 0.2,
 	"num_gpus": 1,
-	"rollout_fragment_length": 256,
-	"train_batch_size": 4096
+	"rollout_fragment_length": 128,
+	"train_batch_size": 2048,
+	"lr": 0.0005,
+	"num_sgd_iter": 3,
+	"replay_proportion": 0.25,
+	"replay_buffer_num_slots": 128
     },
     "env_wrapper": {
         "module": "rayenv",
@@ -52,10 +56,6 @@
     "callback": {
 	"module": "custom_metrics",
 	"class": "CustomMetrics"
-    },
-    "model": {
-	"module": "models.ray_vae",
-	"class": "RayVAE"
     },
     "max_epochs": 100000
 }

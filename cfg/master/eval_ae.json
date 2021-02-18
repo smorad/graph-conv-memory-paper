@@ -36,7 +36,7 @@
 	    "framestack": false
 	},
         "num_workers": 0,
-        "num_gpus_per_worker": 0.5,
+        "num_gpus_per_worker": 0.25,
 	"num_gpus": 1,
 	"rollout_fragment_length": 128,
 	"train_batch_size": 1024,
@@ -55,11 +55,13 @@
     },
     "callback": {
 	"module": "custom_metrics",
-	"class": "VAEMetrics"
+	"class": "AEMetrics"
     },
     "model": {
-	"module": "models.ray_vae",
-	"class": "RayVAE"
+	"module": "models.ray_ae",
+	"class": "RayAE"
     },
-    "max_epochs": 100000
+    "checkpoint": "/root/ray_results/ae_2048h_cos_mse/checkpoint_2851/checkpoint-2851",
+    "num_episodes": 1
+
 }
