@@ -12,7 +12,7 @@ from semantic_colors import COLORS64
 class QuantizedSemanticMask(ObservationTransformer):
     """Downsample an incoming observation of [1,m,n] to [43, m / height_fac, n / width_fac]. This first lookups semantic categories from object IDs, then expands each unique semantic value into an image channel, then downsamples the image."""
 
-    def __init__(self, env, num_cats=43, height_fac=10, width_fac=10):
+    def __init__(self, env, num_cats=43, height_fac=32, width_fac=32):
         self.dtype = np.float32
         self.num_cats = num_cats
         self.env = env

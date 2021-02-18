@@ -6,7 +6,7 @@ from habitat_baselines.common.obs_transformers import ObservationTransformer
 
 
 class QuantizedDepth(ObservationTransformer):
-    def __init__(self, env, height_fac=10, width_fac=10):
+    def __init__(self, env, height_fac=32, width_fac=32):
         self.env = env
         self.dtype = np.float32
         self.facs = np.array((height_fac, width_fac), dtype=np.int32)
@@ -42,8 +42,10 @@ class QuantizedDepth(ObservationTransformer):
             return obs
 
         depth = np.reshape(obs["depth"], (1, *self.sensor_shape))
+        # Rather than mean, we care about the closest object per pixel
+        # i.e. min_pool
         quant_depth = (
-            torch.nn.functional.avg_pool2d(torch.FloatTensor(depth), self.facs.tolist())
+            torch.nn.functional.max_pool2d(torch.FloatTensor(depth), self.facs.tolist())
             .squeeze()
             .numpy()
         )
@@ -53,9 +55,9 @@ class QuantizedDepth(ObservationTransformer):
 
     def visualize(self):
         return (
-            255
+            254
             * cv2.resize(self.quant_depth, tuple(self.sensor_shape), cv2.INTER_NEAREST)
-        ).astype(np.int8)
+        ).astype(np.uint8)
 
     def from_config(cls, config):
         # TODO: Figure out if we need this
