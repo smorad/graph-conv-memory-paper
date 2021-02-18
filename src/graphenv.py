@@ -56,7 +56,7 @@ class GraphNavEnv(NavEnv):
             if self.visualize_lvl >= 2 and info.get("top_down_map") is not None:
                 self.add_node_to_map(info)
                 self.emit_debug_graph(info)
-            self.add_node(obs, info)
+        self.add_node(obs, info)
         return obs, reward, done, info
 
     def add_node_to_map(self, info):
