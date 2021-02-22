@@ -79,13 +79,13 @@ class PPAE(ObservationTransformer):
         # TODO: Clean this up
         out_depth, out_sem = self.reconstruct()
         img = np.zeros((*out_depth.shape, 3), dtype=np.uint8)
-        for layer_idx in range(out_sem.shape[0]):
-            layer = out_sem[layer_idx, :, :]
-            filled_px = np.argwhere(np.around(layer) == 1)
-            img[filled_px[:, 0], filled_px[:, 1]] = COLORS64[layer_idx]
+        # To single channel where px value is semantic class
+        max_likelihood_px = out_sem.argmax(axis=0)
+        # Convert to RGB
+        img = COLORS64[max_likelihood_px.flat].reshape(*max_likelihood_px.shape, 3)
         sem_out = cv2.resize(
             img, tuple(self.sensor_shape), interpolation=cv2.INTER_NEAREST
-        )
+        ).astype(np.uint8)
 
         depth_out = (
             255 * cv2.resize(out_depth, tuple(self.sensor_shape), cv2.INTER_NEAREST)

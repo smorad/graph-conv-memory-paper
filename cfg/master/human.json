@@ -8,7 +8,7 @@
                     "class": "CompassFix"
                 },
                 "semantic": {
-                    "module": "preprocessors.quantized_mash",
+                    "module": "preprocessors.semantic.quantized_mesh",
                     "class": "QuantizedSemanticMask"
                 },
                 "depth": {
@@ -18,7 +18,11 @@
                 "ghost_rgb": {
                     "module": "preprocessors.ghost_rgb",
                     "class": "GhostRGB"
-                }
+                },
+		"ae": {
+		    "module": "preprocessors.autoencoder.ppae",
+		    "class": "PPAE"
+		}
             },
 	    "rewards": {
                 "stop_goal": {
