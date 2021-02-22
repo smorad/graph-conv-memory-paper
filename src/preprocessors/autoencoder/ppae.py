@@ -49,7 +49,7 @@ class PPAE(ObservationTransformer):
         with torch.no_grad():
             img = self.to_img(self.in_sem, self.in_depth)
             self.z = self.net.encode(img)
-            obs["ae"] = self.z.squeeze()
+            obs["ae"] = self.z.squeeze().numpy()
         return obs
 
     def reconstruct(self):

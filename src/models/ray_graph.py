@@ -1,12 +1,14 @@
 import torch
+import numpy as np
 import gym
 from torch import nn
 import torch.nn.functional as F
-from typing import Union, Dict, List
+from typing import Union, Dict, List, Tuple
 import ray
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.modelv2 import ModelV2, restore_original_dimensions
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork as TorchFC
+from ray.rllib.models.torch.misc import SlimFC
 from ray.rllib.models.torch.recurrent_net import RecurrentNetwork
 from ray.rllib.utils.typing import ModelConfigDict, TensorType
 
@@ -29,6 +31,7 @@ class RayObsGraph(RecurrentNetwork, nn.Module):
         super(RayObsGraph, self).__init__(
             obs_space, action_space, num_outputs, model_config, name
         )
+        self.num_outputs = num_outputs
         self.t_dist = 4
         self.gcn_outsize = 1024
         self.gcn_h_size = 256
@@ -40,7 +43,32 @@ class RayObsGraph(RecurrentNetwork, nn.Module):
         # Action probs could be sum of gcn and image policy
         # When unclear follow map, else if in front follow obs policy
         self.gcn1 = torch_geometric.nn.GCNConv(self.gcn_h_size, self.gcn_outsize)
-        self.logit_fc0 = nn.Linear(self.gcn_outsize, self.act_dim)
+
+        """
+        # TODO: Copy our model setup
+        self.logit_branch = nn.Sequential(
+            nn.Linear(self.gcn_outsize, num_outputs)
+        )
+
+        self.value_branch = nn.Sequential(
+            nn.Linear(self.gcn_outsize, 1),
+        )
+        """
+        self.logit_branch = SlimFC(
+            in_size=self.gcn_outsize,
+            out_size=self.num_outputs,
+            activation_fn=None,
+            initializer=torch.nn.init.xavier_uniform_,
+        )
+
+        self.value_branch = SlimFC(
+            in_size=self.gcn_outsize,
+            out_size=1,
+            activation_fn=None,
+            initializer=torch.nn.init.xavier_uniform_,
+        )
+
+        self.cur_val = None
 
         self.edge_predictor = nn.Sequential(
             nn.Linear(2 * self.gcn_outsize, self.edge_predictor_h_size),
@@ -48,6 +76,10 @@ class RayObsGraph(RecurrentNetwork, nn.Module):
             nn.Linear(self.edge_predictor_h_size, 1),
             nn.Tanh(),
         )
+
+    def value_function(self):
+        assert self.cur_val is not None, "must call forward() first"
+        return self.cur_val
 
     def variables(
         self, as_dict: bool = False
@@ -66,42 +98,34 @@ class RayObsGraph(RecurrentNetwork, nn.Module):
             }
         return [v for v in self.variables() if v.requires_grad]  # type: ignore
 
-    def add_node(self, state: TensorType, flat_obs: TensorType):
+    def add_node(self, state: TensorType, flat_obs: TensorType, seq_lens):
         """Adds the current observation as a node in
         the graph, and builds edges to t-1 and itself
 
         state is [[Batch, [[in_edges], [out_edges]], [Batch, nodes]]
         flat_obs is [Batch, feature]
 
+        Returns updated state: [edges, nodes]
+
         """
         # Add current obs as node and edge
         # pytorch geometric data format
         # State = [edge_list, node_features]
-        edges = state[0]
-        # in_edges = edges[:,0]
-        # out_edges = edges[:,1]
-        # device = nodes.device
-        nodes = state[1]
-        batch_size = nodes.shape[0]
+
+        batch_size = flat_obs.shape[0]
         self_edge = torch.zeros(
             (batch_size, 2, 1), device=flat_obs.device, dtype=torch.long
         )
+        node = flat_obs.to(flat_obs.device)
+        # t == 0
+        if state == []:
+            return self_edge, node.unsqueeze(1)
 
-        # First run, discard values
-        if self.garbage_state:
-            edges = self_edge
-            nodes[:, 0, :] = flat_obs
-            state = [edges, nodes]
-            self.garbage_state = False
-            return [edges, nodes]
-
-        import pdb
-
-        pdb.set_trace()
-
+        # t = 1..n
         # Add self connection and t-1 connection
-        # new_edges = torch.tensor([[nodes.shape[0], nodes.shape[0]]], device=flat_obs.device)
-        # The first node does not have a back edge
+        # state == [Batch, num_nodes, num_features]
+        nodes: TensorType = torch.cat((nodes, node.unsqueeze(1)))
+        edges: TensorType = torch.cat((edges, self_edge))
         """
         if edges.shape[1] > 1:
             back_edges = torch.tensor([
@@ -112,7 +136,6 @@ class RayObsGraph(RecurrentNetwork, nn.Module):
 
         new_node = flat_obs.unsqueeze(0)
 
-        import pdb; pdb.set_trace()
         edges = torch.cat((edges, new_edges))
         nodes = torch.cat((nodes, new_node))
         """
@@ -133,6 +156,7 @@ class RayObsGraph(RecurrentNetwork, nn.Module):
     def get_initial_state(self):
         # We cannot return empty here
         # so create these placeholders instead
+        return []
         nodes = torch.empty(
             (1, self.obs_dim), device="cuda"
         )  # torch.tensor([], device='cuda')
@@ -141,11 +165,28 @@ class RayObsGraph(RecurrentNetwork, nn.Module):
         return [edges, nodes]
         # return []
 
+    def forward(
+        self,
+        input_dict: Dict[str, TensorType],
+        state: List[TensorType],
+        seq_lens: TensorType,
+    ) -> Tuple[TensorType, List[TensorType]]:
+        """Adds time dimension to batch before sending inputs to forward_rnn().
+
+        You should implement forward_rnn() in your subclass."""
+        flat_inputs = input_dict["obs_flat"]
+        if isinstance(seq_lens, np.ndarray):
+            seq_lens = torch.Tensor(seq_lens).int()
+
+        output, new_state = self.forward_rnn(flat_inputs, state, seq_lens)
+        output = torch.reshape(output, [-1, self.num_outputs])
+        return output, new_state
+
     def forward_rnn(
         self, inputs: TensorType, state: List[TensorType], seq_lens: TensorType
     ):
         """
-        inputs (dict): Observation tensor with shape [B, T, obs_size].
+        inputs (dict): Observation tensor with shape [B, obs_size].
         state (list): List of state tensors, each with shape [B, size].
         seq_lens (Tensor): 1D tensor holding input sequence lengths.
             Note: len(seq_lens) == B.
@@ -155,9 +196,8 @@ class RayObsGraph(RecurrentNetwork, nn.Module):
                 [B, T, num_outputs] and the list of new state tensors each with
                 shape [B, size].
         """
-        # We do not care about time dim, only get most recent
-        obs = inputs[:, -1, :]
-        edges, nodes = self.add_node(state, obs)
+        obs = inputs
+        edges, nodes = self.add_node(state, obs, seq_lens)
         # Load into form for torch geometric
         # x, edge_index = Data(nodes, edges)
         self = self.to("cpu")
@@ -165,28 +205,35 @@ class RayObsGraph(RecurrentNetwork, nn.Module):
         edges = edges.to("cpu")
         batches = nodes.shape[0]
         # TODO: Use more efficient batch notation
-        out = torch.empty((batches, self.gcn_outsize))
+        out = torch.empty((batches, self.gcn_outsize), device="cpu")
         for b in range(batches):
             x = nodes[b]
-            ei = edges[b]
+            # TODO: This is float, figure out what is casting it from int to float
+            ei = edges[b].long()
             x = F.relu(self.gcn0(x, ei))
             x = F.dropout(x)
             x = F.relu(self.gcn1(x, ei))
             out[b] = x
 
         state = [edges, nodes]
+        # Rllib expects outputs on gpu
+        logits = self.logit_branch(out).to("cuda")
+        self.cur_val = self.value_branch(out).squeeze(1).to("cuda")
+        print(
+            "inputs",
+            inputs.shape,
+            "obs",
+            obs.shape,
+            "nodes",
+            nodes.shape,
+            "logits",
+            logits.shape,
+        )
 
         # out = torch.zeros((obs["gps"].shape[0], 5)).to(obs["gps"].device)
         # Return [batch, action_space]
-        import pdb
 
-        pdb.set_trace()
-        return out, state
-
-    """
-    def value_function(self):
-        return self._curr_value
-    """
+        return logits, state
 
     def custom_loss(
         self, policy_loss: List[torch.Tensor], loss_inputs
