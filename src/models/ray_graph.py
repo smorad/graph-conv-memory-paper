@@ -15,7 +15,7 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.view_requirement import ViewRequirement
 
 import torch_geometric
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Batch
 
 ## What I've found
 ## if we disable trajectory view:
@@ -56,7 +56,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             obs_space, action_space, num_outputs, model_config, name
         )
         self.num_outputs = num_outputs
-        self.graph_size = 128
+        self.graph_size = 100
         self.t_dist = 4
         self.gcn_outsize = 1024
         self.gcn_h_size = 256
@@ -129,74 +129,71 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Forward expects outputs as [B, T, logits]
         B = len(seq_lens)
         T = flat.shape[0] // B
-        # Deconstruct batch into batch and time dimensions
+
+        logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
+        values = torch.zeros(B, T, 1, device=flat.device)
+        # Deconstruct batch into batch and time dimensions: [B, T, feats]
         flat = torch.reshape(flat, [-1, T] + list(flat.shape[1:]))
+        # We only care about latest obs, but we get seq_lens[i] worth of obs
+        flat = flat[:, -1, :].squeeze(1)
 
-        b_num_nodes, b_nodes, b_adj_mats = state
-        # rllib casts state tensors to float32 for some reason...
-        b_adj_mats = b_adj_mats.long()
-        b_num_nodes = b_num_nodes.long()
+        num_nodes, nodes, adj_mats = state
+        num_nodes = num_nodes.long()
+        adj_mats = adj_mats.long()
 
-        torch.autograd.set_detect_anomaly(True)
-
-        batch_logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
-        batch_values = torch.zeros(B, T, 1, device=flat.device)
-
-        """
-        print('batch_size', B)
-        print('time_size', T)
-        print('num_nodes', b_num_nodes.shape)
-        print('seq_lens', seq_lens)
-        """
-
+        # Add new nodes to graph at the next free index (num_nodes)
+        new_nodes = [nodes[i, tgt_n, :].squeeze() for i, tgt_n in enumerate(num_nodes)]
         for b in range(B):
-            num_nodes = b_num_nodes[b]
-            nodes = b_nodes[b]
-            adj_mat = b_adj_mats[b]
-            # Nodes come in as [t, t-1, ... t-n]
+            nodes[b, num_nodes[b]] = new_nodes[b]
 
-            # Add self edge and t-1 edge
-            adj_mat[num_nodes, num_nodes] = 1
-            if num_nodes > 0:
-                adj_mat[num_nodes, num_nodes - 1] = 1
-                adj_mat[num_nodes - 1, num_nodes] = 1
+        # Add self edge
+        adj_mats[:, num_nodes, num_nodes] = 1
 
-            # Add latest node to graph
-            # Zeroth time seems to be the most recent
-            # TODO WARNING: This fixes backprop issue but we are bypassing
-            # computation graph for this assignment
-            # see https://stackoverflow.com/questions/53819383/how-to-assign-a-new-value-to-a-pytorch-variable-without-breaking-backpropagation
-            nodes[num_nodes].data = flat[b][0]
+        # Add temporal bidirectional back edge, but only if we have >1 nodes
+        # Returns a 2ple of indices ( [i0, i1..], [j0, j1..])
+        backedge_capable = torch.where(num_nodes > 1)
+        rows, cols = backedge_capable
+        adj_mats[:, rows - 1, cols] = 1
+        adj_mats[:, rows, cols - 1] = 1
 
-            edge_list, _ = torch_geometric.utils.dense_to_sparse(adj_mat)
-            # TODO: GCN causing in-place issue
-            # nodes.data fixes it but then we lost gradient info...
-            out = self.gcn0(nodes, edge_list).relu()
-            out = self.gcn1(out, edge_list).relu()  # 128x1024
-            # We only care about our current pos/node
-            # TODO: Ensure we actually care about only a specific node
-            # Instead of convolving to size 1
-            node_out = out[num_nodes]
-            # node_out = torch.zeros((1024,),device=flat.device)
+        # GCN uses sparse edgelist
+        # For batch mode, torch_geometric expects a specific format
+        # see https://pytorch-geometric.readthedocs.io/en/latest/notes/introduction.html#mini-batches
+        edge_lists = [
+            torch_geometric.utils.dense_to_sparse(adj_mat)[0] for adj_mat in adj_mats
+        ]
+        in_batch = Batch.from_data_list(
+            [Data(x=nodes[i], edge_index=edge_lists[i]) for i in range(len(edge_lists))]
+        )
+        # Push graph through GNN
+        out = self.gcn0(in_batch.x, in_batch.edge_index).relu()
+        out = self.gcn1(out, in_batch.edge_index).relu()
+        # torch_geometric will have collapsed dims[0,1] into dim[0]
+        # reconstruct but use gcn output feature size
+        # After reshape, out is [Batch, node, gcn_outsize (aka feat)]
+        out = torch.reshape(out, (*nodes.shape[:-1], self.gcn_outsize))
+        # We only care about observation at our newly added node
+        # Index each batch by num_nodes (the node we just inserted) to get
+        # the target node for each batch
+        target_node_out = torch.stack(
+            [out[i, tgt_n, :].squeeze(0) for i, tgt_n in enumerate(num_nodes)]
+        )
+        # target_node_out = out.index_select(1, num_nodes.squeeze())
 
-            batch_logits[b][0] = self.logit_branch(node_out)
-            batch_values[b][0] = self.value_branch(node_out)
-            num_nodes = num_nodes + 1
+        # Update graph with new node
+        num_nodes = num_nodes + 1
 
-        # TODO: ENSURE WE CAN SEND ZEROS FOR OTHER TIMESTEPS
-        batch_logits = batch_logits.reshape((B * T, self.num_outputs))
-        batch_values = batch_values.reshape((B * T, 1))
+        # Outputs
+        # We only care about the last output, for T=t (not T=t-1...t-n)
+        # TODO: Ensure the loss is correctly handled if all other logits/vals
+        # timesteps are zero
+        logits[:, -1] = self.logit_branch(target_node_out)
+        values[:, -1] = self.value_branch(target_node_out)
+        logits = logits.reshape((B * T, self.num_outputs))
+        values = values.reshape((B * T, 1))
 
-        self.cur_val = batch_values.squeeze(1)
-
-        # Outputs:
-        # logits: [batch_size, num_outputs]
-        # cur_val: [batch_size,]
-        # logits = torch.zeros((batch_size, self.num_outputs)).to("cuda")
-        # self.cur_val = torch.zeros((batch_size, 1)).squeeze(1).to('cuda')
-        # self.value_branch(out).squeeze(1).to("cuda")
-
-        return batch_logits, state
+        self.cur_val = values.squeeze(1)
+        return logits, state
 
     def forward_debug(
         self,
