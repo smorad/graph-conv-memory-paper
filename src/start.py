@@ -14,6 +14,9 @@ import torch
 from ray.tune.logger import pretty_print
 from ray.rllib.models import ModelCatalog
 from ray.rllib.rollout import rollout, RolloutSaver
+from ray import tune
+import hyperopt
+from ray.tune.suggest.hyperopt import HyperOptSearch
 
 import util
 
@@ -70,6 +73,61 @@ def load_master_cfg(path):
     with open(path, "r") as f:
         cfg = json.load(f)
     return cfg
+
+
+def train_tune(args, cfg):
+    ray.init(
+        dashboard_host="0.0.0.0",
+        local_mode=args.local,
+        object_store_memory=args.object_store_mem,
+    )
+
+    env_class = util.load_class(cfg, "env_wrapper")
+    trainer_class = util.load_class(cfg, "trainer")
+    cfg["ray"]["callbacks"] = util.load_class(cfg, "callback")
+    if "model" in cfg:
+        model_class = util.load_class(cfg, "model")
+        ModelCatalog.register_custom_model(model_class.__name__, model_class)
+        print(
+            f"Starting: trainer: {trainer_class.__name__}: "
+            f"env: {env_class.__name__} model: {model_class.__name__}"
+        )
+        cfg["ray"]["model"]["custom_model"] = model_class
+    else:
+        print(
+            f"Starting: trainer: {trainer_class.__name__}: "
+            f"env: {env_class.__name__} model: RAY DEFAULT"
+        )
+    start_tb()
+    # trainer = trainer_class(env=env_class, config=cfg["ray"])
+    tune.register_env(env_class.__name__, env_class)
+    cfg["ray"]["env"] = env_class.__name__
+
+    search_space = {
+        "lr": tune.loguniform(1e-5, 1e-2),
+        "train_batch_size": tune.qrandint(512, 4096, 256),
+    }
+
+    cfg["ray"].update(search_space)
+
+    hp = HyperOptSearch(metric="episode_reward_mean", mode="max")
+    stop_cond = {"training_iteration": 250}
+    reporter = tune.CLIReporter(
+        metric_columns=["timers", "episode_reward_mean", "training_iteration"],
+        parameter_columns=["lr", "env"],
+    )
+    analysis = tune.run(
+        trainer_class,
+        config=cfg["ray"],
+        search_alg=hp,
+        num_samples=20,
+        progress_reporter=reporter,
+        stop=stop_cond,
+    )
+    print(
+        "Best config: ",
+        analysis.get_best_config(metric="episode_reward_mean", mode="max"),
+    )
 
 
 def train(args, cfg):
@@ -223,7 +281,7 @@ def main():
     render_server.start()
 
     if args.mode == "train":
-        train(args, cfg)
+        train_tune(args, cfg)
     elif args.mode == "eval":
         evaluate(args, cfg)
     elif args.mode == "human":
