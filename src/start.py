@@ -1,9 +1,9 @@
 import argparse
+import importlib.util
 import atexit
 import importlib
 import subprocess
 import multiprocessing
-import json
 import time
 import shutil
 import ray
@@ -23,7 +23,7 @@ import util
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("master_cfg", help="Path to the master .json cfg")
+    parser.add_argument("master_cfg", help="Path to the master .py config file")
     parser.add_argument("--mode", help="Train, eval, or human", default="train")
     parser.add_argument(
         "--object-store-mem", help="Size of object store in bytes", default=3e10
@@ -58,76 +58,11 @@ def start_tb():
 
 
 def load_master_cfg(path):
-    """Master cfg should be json. It should be of format
-    {
-        ray_cfg: {
-            env_config: {
-                '...', # path to habitat cfg
-            }
-            ...
-        },
-        env_wrapper: "module_here.ClassGoesHere"
-        ...
-    }
-    """
-    with open(path, "r") as f:
-        cfg = json.load(f)
-    return cfg
-
-
-def train_tune(args, cfg):
-    ray.init(
-        dashboard_host="0.0.0.0",
-        local_mode=args.local,
-        object_store_memory=args.object_store_mem,
-    )
-
-    env_class = util.load_class(cfg, "env_wrapper")
-    trainer_class = util.load_class(cfg, "trainer")
-    cfg["ray"]["callbacks"] = util.load_class(cfg, "callback")
-    if "model" in cfg:
-        model_class = util.load_class(cfg, "model")
-        ModelCatalog.register_custom_model(model_class.__name__, model_class)
-        print(
-            f"Starting: trainer: {trainer_class.__name__}: "
-            f"env: {env_class.__name__} model: {model_class.__name__}"
-        )
-        cfg["ray"]["model"]["custom_model"] = model_class
-    else:
-        print(
-            f"Starting: trainer: {trainer_class.__name__}: "
-            f"env: {env_class.__name__} model: RAY DEFAULT"
-        )
-    start_tb()
-    # trainer = trainer_class(env=env_class, config=cfg["ray"])
-    tune.register_env(env_class.__name__, env_class)
-    cfg["ray"]["env"] = env_class.__name__
-
-    search_space = {
-        "lr": tune.loguniform(1e-5, 1e-2),
-        "train_batch_size": tune.qrandint(512, 4096, 256),
-    }
-
-    cfg["ray"].update(search_space)
-
-    hp = HyperOptSearch(metric="episode_reward_mean", mode="max")
-    stop_cond = {"training_iteration": 250}
-    reporter = tune.CLIReporter(
-        metric_columns=["timers", "episode_reward_mean", "training_iteration"],
-        parameter_columns=["lr", "env"],
-    )
-    analysis = tune.run(
-        trainer_class,
-        config=cfg["ray"],
-        search_alg=hp,
-        num_samples=20,
-        progress_reporter=reporter,
-        stop=stop_cond,
-    )
-    print(
-        "Best config: ",
-        analysis.get_best_config(metric="episode_reward_mean", mode="max"),
-    )
+    """Given a path to a .py config, load it and return the dict <path>.CFG"""
+    spec = importlib.util.spec_from_file_location("dynamic_config", path)
+    cfg_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cfg_mod)
+    return cfg_mod.CFG
 
 
 def train(args, cfg):
@@ -137,41 +72,25 @@ def train(args, cfg):
         object_store_memory=args.object_store_mem,
     )
 
-    env_class = util.load_class(cfg, "env_wrapper")
-    trainer_class = util.load_class(cfg, "trainer")
-    cfg["ray"]["callbacks"] = util.load_class(cfg, "callback")
-    if "model" in cfg:
-        model_class = util.load_class(cfg, "model")
-        ModelCatalog.register_custom_model(model_class.__name__, model_class)
-        print(
-            f"Starting: trainer: {trainer_class.__name__}: "
-            f"env: {env_class.__name__} model: {model_class.__name__}"
-        )
-        cfg["ray"]["model"]["custom_model"] = model_class
-    else:
-        print(
-            f"Starting: trainer: {trainer_class.__name__}: "
-            f"env: {env_class.__name__} model: RAY DEFAULT"
-        )
     start_tb()
-    trainer = trainer_class(env=env_class, config=cfg["ray"])
-    epoch = 0
-    while True:
-        print(f"Epoch: {epoch}")
-        start_t = time.time()
-        epoch_results = trainer.train()
-        num_steps = sum(epoch_results["hist_stats"]["episode_lengths"])
-        print(pretty_print(epoch_results))
-        epoch_t = time.time() - start_t
-        print(f"Epoch {epoch} done in {epoch_t:.2f}s, {num_steps / epoch_t:.2f} fps")
-        if epoch % 50 == 0:
-            cpt = trainer.save()
-            print(f"Saved to {cpt}")
+    reporter = tune.CLIReporter(
+        metric_columns=["timers", "episode_reward_mean", "training_iteration"],
+        parameter_columns=["lr", "env"],
+    )
 
-        epoch += 1
-        if epoch >= cfg.get("max_epochs", float("inf")):
-            print(f"Trained for {epoch} epochs, terminating")
-            break
+    stop_cond = cfg.get("tune", {}).get("stop", {})
+    num_samples = cfg.get("tune", {}).get("num_samples", 1)
+    search_alg = cfg.get("tune", {}).get("search_alg", None)
+
+    analysis = tune.run(
+        cfg["ray_trainer"],
+        config=cfg["ray"],
+        search_alg=search_alg,
+        num_samples=num_samples,
+        progress_reporter=reporter,
+        stop=stop_cond,
+    )
+    print(f"Analysis: {analysis}")
 
 
 def evaluate(args, cfg):
@@ -281,7 +200,9 @@ def main():
     render_server.start()
 
     if args.mode == "train":
-        train_tune(args, cfg)
+        train(args, cfg)
+    elif args.mode == "tune":
+        tune(args, cfg)
     elif args.mode == "eval":
         evaluate(args, cfg)
     elif args.mode == "human":

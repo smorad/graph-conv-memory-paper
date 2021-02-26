@@ -22,7 +22,7 @@ class NavEnv(habitat.RLEnv):
     def __init__(self, cfg):
         self.visualize_lvl = cfg["visualize"]
         self.hab_cfg = habitat.get_config(config_paths=cfg["hab_cfg_path"])
-        self.rewards = [util.load_class(cfg["rewards"], k)() for k in cfg["rewards"]]
+        self.rewards = [reward_cls() for reward_cls in cfg["rewards"].values()]
         # TODO: Set different random seeds for different workers (based on pid maybe)
         super().__init__(self.hab_cfg)
 
@@ -40,7 +40,7 @@ class NavEnv(habitat.RLEnv):
         # Observation transformers let us modify observations without
         # adding new sensors
         self.preprocessors = [
-            util.load_class(cfg["preprocessors"], k)(self) for k in cfg["preprocessors"]
+            preproc_cls(self) for preproc_cls in cfg["preprocessors"].values()
         ]
         self.observation_space = obs_transformers.apply_obs_transforms_obs_space(
             self.observation_space, self.preprocessors
@@ -190,6 +190,7 @@ class NavEnv(habitat.RLEnv):
         # print('object', self.cat_to_str[obs['objectgoal']],obs['objectgoal'])
         # Reset reward functions
         [r.reset() for r in self.rewards]
+        [p.reset() for p in self.preprocessors if hasattr(p, "reset")]
         self.maybe_viz(obs)
         obs = obs_transformers.apply_obs_transforms_batch(obs, self.preprocessors)
         # See https://discuss.ray.io/t/preprocessor-fails-on-observation-vector/614
