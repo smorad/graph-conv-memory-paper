@@ -58,8 +58,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.num_outputs = num_outputs
         self.graph_size = 100
         self.t_dist = 4
-        self.gcn_outsize = 1024
-        self.gcn_h_size = 256
+        self.gcn_outsize = 256
+        self.gcn_h_size = 512
         self.edge_predictor_h_size = 256
         self.obs_dim = gym.spaces.utils.flatdim(obs_space)
         self.act_dim = gym.spaces.utils.flatdim(action_space)
@@ -74,11 +74,11 @@ class RayObsGraph(TorchModelV2, nn.Module):
         """
         self.simple = SlimFC(in_size=self.obs_dim, out_size=self.num_outputs)
 
-        self.gcn0 = torch_geometric.nn.GraphConv(self.obs_dim, self.gcn_h_size)
+        self.gcn0 = torch_geometric.nn.GCNConv(self.obs_dim, self.gcn_h_size)
         # Kind of like the insect robots
         # Action probs could be sum of gcn and image policy
         # When unclear follow map, else if in front follow obs policy
-        self.gcn1 = torch_geometric.nn.GraphConv(self.gcn_h_size, self.gcn_outsize)
+        self.gcn1 = torch_geometric.nn.GCNConv(self.gcn_h_size, self.gcn_outsize)
 
         self.logit_branch = SlimFC(
             in_size=self.gcn_outsize,
@@ -141,10 +141,16 @@ class RayObsGraph(TorchModelV2, nn.Module):
         num_nodes = num_nodes.long()
         adj_mats = adj_mats.long()
 
+        # We have limited space reserved, rewrite at the zeroth entry if we run out
+        # of space
+        graph_overflows = num_nodes == self.graph_size - 1
+        if torch.any(graph_overflows):
+            print("error: ran out of graph space, starting from zero")
+            num_nodes[graph_overflows] = 0
+
         # Add new nodes to graph at the next free index (num_nodes)
-        new_nodes = [nodes[i, tgt_n, :].squeeze() for i, tgt_n in enumerate(num_nodes)]
         for b in range(B):
-            nodes[b, num_nodes[b]] = new_nodes[b]
+            nodes[b, num_nodes[b]] = flat[b]
 
         # Add self edge
         adj_mats[:, num_nodes, num_nodes] = 1
@@ -178,7 +184,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         target_node_out = torch.stack(
             [out[i, tgt_n, :].squeeze(0) for i, tgt_n in enumerate(num_nodes)]
         )
-        # target_node_out = out.index_select(1, num_nodes.squeeze())
 
         # Update graph with new node
         num_nodes = num_nodes + 1
@@ -193,6 +198,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         values = values.reshape((B * T, 1))
 
         self.cur_val = values.squeeze(1)
+
         return logits, state
 
     def forward_debug(
