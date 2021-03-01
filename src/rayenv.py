@@ -185,8 +185,8 @@ class NavEnv(habitat.RLEnv):
                 self.emit_preproc_imgs(obs)
 
     def reset(self):
-        self.maybe_build_sem_lookup_table()
         obs = super().reset()
+        self.maybe_build_sem_lookup_table()
         # print('object', self.cat_to_str[obs['objectgoal']],obs['objectgoal'])
         # Reset reward functions
         [r.reset() for r in self.rewards]
