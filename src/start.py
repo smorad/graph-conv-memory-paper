@@ -11,6 +11,7 @@ import server.render
 import os
 import inspect
 import torch
+import torch.autograd.profiler as profiler
 from ray.tune.logger import pretty_print
 from ray.rllib.models import ModelCatalog
 from ray.rllib.rollout import rollout, RolloutSaver
@@ -44,6 +45,14 @@ def get_args():
         default=None,
         type=str,
         help="Export saved rllib model as torch to this path",
+    )
+    parser.add_argument(
+        "--resume", default=None, type=str, help="Resume training after interruption"
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Use torch profiler to measure gpu usage over a trial",
     )
     args = parser.parse_args()
     return args
@@ -79,8 +88,15 @@ def train(args, cfg):
     )
 
     stop_cond = cfg.get("tune", {}).get("stop", {})
+    goal_metric = cfg.get(
+        "goal_metric", {"metric": "episode_reward_mean", "mode": "max"}
+    )
     num_samples = cfg.get("tune", {}).get("num_samples", 1)
     search_alg = cfg.get("tune", {}).get("search_alg", None)
+
+    if args.profile:
+        prof = profiler.profile(record_shapes=True, profile_memory=True)
+        prof.__enter__()
 
     analysis = tune.run(
         cfg["ray_trainer"],
@@ -89,8 +105,20 @@ def train(args, cfg):
         num_samples=num_samples,
         progress_reporter=reporter,
         stop=stop_cond,
+        keep_checkpoints_num=3,
+        checkpoint_score_attr=goal_metric["metric"],
+        checkpoint_at_end=True,
+        metric=goal_metric["metric"],
+        mode=goal_metric["mode"],
+        resume=bool(args.resume),
+        name=args.resume,
     )
-    print(f"Analysis: {analysis}")
+
+    if args.profile:
+        prof.__exit__(None, None, None)
+        print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=20))
+
+    print(f"Best trial: {analysis.best_trial}")
 
 
 def evaluate(args, cfg):
