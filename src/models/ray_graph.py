@@ -51,7 +51,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         num_outputs: int,
         model_config: ModelConfigDict,
         name: str,
-        **custom_model_kwargs
+        **custom_model_kwargs,
     ):
         nn.Module.__init__(self)
         super(RayObsGraph, self).__init__(
@@ -64,19 +64,51 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.graph_size = custom_model_kwargs.get("graph_size", 100)
         self.gcn_outsize = custom_model_kwargs.get("gcn_output_size", 256)
         self.gcn_h_size = custom_model_kwargs.get("gcn_hidden_size", 512)
-        self.gnn = custom_model_kwargs.get(
-            "gnn_arch",
-            nn.ModuleDict(
-                {
-                    "graph0": torch_geometric.nn.GCNConv(self.obs_dim, self.gcn_h_size),
-                    "act0": nn.ReLU(),
-                    "graph1": torch_geometric.nn.GCNConv(
-                        self.gcn_h_size, self.gcn_outsize
-                    ),
-                    "act1": nn.ReLU(),
-                }
-            ),
+        self.gcn_num_layers = custom_model_kwargs.get("gcn_num_layers", 2)
+        self.gcn_num_attn_heads = custom_model_kwargs.get("gcn_num_attn_heads", 1)
+        self.gcn_conv_type = custom_model_kwargs.get(
+            "gcn_conv_type", torch_geometric.nn.GCNConv
         )
+        self.gcn_act_type = custom_model_kwargs.get("gcn_act_type", torch.nn.ReLU)
+
+        # Build GCN layers
+        layer_sizes = np.logspace(
+            start=np.log2(self.obs_dim),
+            stop=np.log2(self.gcn_outsize),
+            num=self.gcn_num_layers + 1,
+            base=2,
+        ).astype(np.int32)
+
+        num_heads = np.logspace(
+            start=np.log2(self.gcn_num_attn_heads),
+            stop=0,
+            num=self.gcn_num_layers,
+            base=2,
+        ).astype(np.int32)
+        # These must be exact
+        layer_sizes[0] = self.obs_dim
+        layer_sizes[-1] = self.gcn_outsize
+        num_heads = np.insert(num_heads, 0, 1)
+        num_heads[-1] = 1
+
+        layers = {}
+        for layer in range(self.gcn_num_layers):
+            in_size = layer_sizes[layer]
+            out_size = layer_sizes[layer + 1]
+            in_heads = num_heads[layer]
+            out_heads = num_heads[layer + 1]
+
+            if self.gcn_conv_type == torch_geometric.nn.GATConv:
+                layers[f"graph_{layer}"] = torch_geometric.nn.GATConv(
+                    int(in_heads * in_size), out_size, out_heads
+                )
+            else:
+                layers[f"graph_{layer}"] = torch_geometric.nn.GCNConv(in_size, out_size)
+
+            layers[f"act_{layer}"] = self.gcn_act_type()
+
+        self.gnn = nn.ModuleDict(layers)
+        print("GNN network is:", self.gnn)
         """
         self.simple = nn.ModuleDict({
             'fc0': nn.Linear(self.obs_dim, self.gcn_outsize),
@@ -144,7 +176,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         """The GPS observation is in global coordinates. To ensure locality,
         make all node poses relative to the coordinate frame
         of the current observation"""
-
         """
         sensor_keys = list(obs.keys())
         gps_idx = sensor_keys.index('gps')
@@ -160,8 +191,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Shape [Batch, feat]
         # Do NOT use -= as it differs from x = x-y
         # it is in-place and breaks torch autograd
-        gps[:,gps_offset, gps_offset + gps_dim + 1]
-        compass[:, compass_offset, compass_offset + compass_dim + 1]
+
+        gps[:,gps_offset : gps_offset + gps_dim + 1]
+        compass[:, compass_offset : compass_offset + compass_dim + 1]
         """
         pass
 
