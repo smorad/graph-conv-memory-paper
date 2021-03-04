@@ -149,10 +149,17 @@ class RayObsGraph(TorchModelV2, nn.Module):
         """Add temporal bidirectional back edge, but only if we have >1 nodes
         E.g., node_{t} <-> node_{t-1}"""
         batch = adj_mats.shape[0]
-        for b in range(batch):
-            if num_nodes[b] > 1:
-                adj_mats[b, num_nodes[b], num_nodes[b] - 1] = 1
-                adj_mats[b, num_nodes[b] - 1, num_nodes[b]] = 1
+
+        batch_idxs = torch.arange(batch)
+        # batch_idxs = num_nodes.squeeze()
+        curr_node_idxs = num_nodes[batch_idxs].squeeze()
+        # Zeroth node cant have backedge
+        mask = curr_node_idxs > 1
+        batch_idxs = batch_idxs.masked_select(mask)
+        curr_node_idxs = curr_node_idxs.masked_select(mask)
+
+        adj_mats[batch_idxs, curr_node_idxs, curr_node_idxs - 1] = 1
+        adj_mats[batch_idxs, curr_node_idxs - 1, curr_node_idxs] = 1
 
     def densify_graph(self, adj_mats, num_nodes):
         """Connect all nodes to all other nodes. In other words,
@@ -166,11 +173,25 @@ class RayObsGraph(TorchModelV2, nn.Module):
         """Add a self edge to the latest node in the graph
         (graph[num_node] <-> graph[num_node])"""
         batch = adj_mats.shape[0]
-        for b in range(batch):
-            adj_mats[b, num_nodes[b], num_nodes[b]] = 1
+        batch_idxs = torch.arange(batch)
+        curr_node_idxs = num_nodes[batch_idxs].squeeze()
+        adj_mats[batch_idxs, curr_node_idxs, curr_node_idxs] = 1
 
     def add_knn_edges(self, nodes, adj_mats, num_nodes, dist_measure):
         raise NotImplementedError()
+
+    def add_time_positional_encoding(self, nodes, num_nodes):
+        """Add a 1D cosine/sine positional embedding to the current node"""
+        batch = nodes.shape[0]
+        i = torch.range(0, nodes.shape[-1] - 1)
+        for b in range(batch):
+            pe = num_nodes[b] / (10000 ** (2 * i / i.shape[0]))
+            if num_nodes[b] // 2 == 0:
+                pe = torch.sin(pe)
+            else:
+                pe = torch.cos(pe)
+
+            nodes[b] = nodes[b] + pe
 
     def make_pose_relative(self, nodes, num_nodes):
         """The GPS observation is in global coordinates. To ensure locality,
@@ -243,8 +264,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 num_nodes[graph_overflows] = 0
 
             # Add new nodes to graph at the next free index (num_nodes)
-            for b in range(B):
-                nodes[b, num_nodes[b]] = flat[b]
+            batch_idxs = torch.arange(num_nodes.shape[0])
+            curr_node_idxs = num_nodes.squeeze()
+            nodes[batch_idxs, curr_node_idxs] = flat[batch_idxs]
 
             # Add self edge
             # TODO: Is this working as expected?
