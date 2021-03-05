@@ -22,13 +22,9 @@ class RayAE(TorchModelV2, CNNAutoEncoder):
         name: str,
     ):
         super().__init__(obs_space, action_space, num_outputs, model_config, name)
-        # TODO: We should inherit from VAE instead of set to member var
-        # super(VAE).__init__()
         CNNAutoEncoder.__init__(self)
         self.sem_loss_fn = nn.CosineEmbeddingLoss(reduction="mean")
-        # self.sem_loss_fn = nn.BCELoss(reduction='mean')
         self.depth_loss_fn = nn.MSELoss(reduction="mean")
-        # self.depth_loss_fn = nn.BCELoss(reduction='mean')
 
     def variables(
         self, as_dict: bool = False
@@ -87,15 +83,6 @@ class RayAE(TorchModelV2, CNNAutoEncoder):
     def custom_loss(
         self, policy_loss: List[torch.Tensor], loss_inputs
     ) -> List[torch.Tensor]:
-        # How important is depth compared to semantic
-        # depth_to_sem_ratio = 1 / 4
-        """
-        cos_sem = self.sem_loss_fn(
-            self.curr_ae_output[:, :-1, :, :],
-            self.curr_ae_input[:, :-1, :, :],
-            torch.ones(self.curr_ae_input.shape[-2:], device=self.curr_ae_input.device)
-        )
-        """
         if not hasattr(self, "sem_tgt"):
             self.sem_tgt = torch.ones(
                 self.curr_ae_input.shape[-2:], device=self.curr_ae_input.device
@@ -111,12 +98,7 @@ class RayAE(TorchModelV2, CNNAutoEncoder):
             self.curr_ae_output[:, -1, :, :],
             self.curr_ae_input[:, -1, :, :],
         )
-        # self.depth_loss = MSE_sem * sem_factor + MSE_depth * depth_to_sem_ratio
         self.combined_loss = self.sem_loss + self.depth_loss
-        # For compatibility with vae logger
-        print(
-            f"Losses: Sem: {self.sem_loss} Depth: {self.depth_loss} Combined: {self.combined_loss.item()}"
-        )
 
         return [self.combined_loss]
 
