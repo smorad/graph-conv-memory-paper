@@ -6,7 +6,7 @@ from habitat_baselines.common.obs_transformers import ObservationTransformer
 
 
 class QuantizedDepth(ObservationTransformer):
-    def __init__(self, env, height_fac=10, width_fac=10):
+    def __init__(self, env, height_fac=1, width_fac=1):
         self.env = env
         self.dtype = np.float32
         self.facs = np.array((height_fac, width_fac), dtype=np.int32)
