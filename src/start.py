@@ -83,8 +83,8 @@ def train(args, cfg):
 
     start_tb()
     reporter = tune.CLIReporter(
-        metric_columns=["timers", "episode_reward_mean", "training_iteration"],
-        parameter_columns=["lr", "env"],
+        metric_columns=["episode_reward_mean", "training_iteration", "timers"],
+        parameter_columns=[],
     )
 
     stop_cond = cfg.get("tune", {}).get("stop", {})
@@ -112,6 +112,7 @@ def train(args, cfg):
         mode=goal_metric["mode"],
         resume=bool(args.resume),
         name=args.resume,
+        log_to_file=True,
     )
 
     if args.profile:
@@ -218,14 +219,15 @@ def main():
 
     cfg["ray"]["env_config"]["visualize"] = args.visualize
     # Rendering obs to website for remote debugging
-    shutil.rmtree(server.render.RENDER_ROOT, ignore_errors=True)
-    os.makedirs(server.render.RENDER_ROOT, exist_ok=True)
-    action_q = multiprocessing.Queue()
-    resp_q = multiprocessing.Queue()
-    render_server = multiprocessing.Process(
-        target=server.render.main, args=(action_q, resp_q)
-    )
-    render_server.start()
+    if args.visualize > 0:
+        shutil.rmtree(server.render.RENDER_ROOT, ignore_errors=True)
+        os.makedirs(server.render.RENDER_ROOT, exist_ok=True)
+        action_q = multiprocessing.Queue()
+        resp_q = multiprocessing.Queue()
+        render_server = multiprocessing.Process(
+            target=server.render.main, args=(action_q, resp_q)
+        )
+        render_server.start()
 
     if args.mode == "train":
         train(args, cfg)
