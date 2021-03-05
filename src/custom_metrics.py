@@ -15,9 +15,10 @@ class VAEMetrics(DefaultCallbacks):
     def on_train_result(self, *, trainer, result, **kwargs) -> None:
         m = trainer.get_policy().model
         losses = {
-            "vae_mse_loss": m.mse_loss.detach().item(),
-            "vae_kld_loss": m.kld_loss.detach().item(),
-            "vae_combined_loss": m.combined_loss.detach().item(),
+            "ae_semantic_loss": m.sem_loss.detach().item(),
+            "ae_depth_loss": m.depth_loss.detach().item(),
+            "ae_kld_loss": m.kld_loss.detach().item(),
+            "ae_combined_loss": m.combined_loss.detach().item(),
         }
         result["custom_metrics"].update(losses)
 
