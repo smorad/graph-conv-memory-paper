@@ -44,6 +44,29 @@ from torch_geometric.data import Data, Batch
 
 
 class RayObsGraph(TorchModelV2, nn.Module):
+    DEFAULT_CONFIG = {
+        # Maximum number of nodes in a graph
+        "graph_size": 32,
+        # Size of latent vector coming out of GNN
+        # before being fed to logits/vf layer(s)
+        "gcn_output_size": 256,
+        # Size of the hidden layers in the GNN
+        "gcn_hidden_size": 256,
+        # Number of layers in the GCN, must be >= 2
+        "gcn_num_layers": 2,
+        # If using GAT, number of attention heads per layer
+        "gcn_num_attn_heads": 1,
+        # Graph convolution layer class
+        "gcn_conv_type": torch_geometric.nn.GCNConv,
+        # Activation function for GNN layers
+        "gcn_act_type": torch.nn.ReLU,
+        # Methodologies for building edges
+        # can be [temporal, dense, knn-mse, knn-cos]
+        "edge_selectors": ["temporal"],
+    }
+
+    EDGE_SELECTORS = ["temporal", "dense", "pose", "knn-mse", "knn-cos"]
+
     def __init__(
         self,
         obs_space: gym.spaces.Space,
@@ -61,83 +84,72 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.obs_dim = gym.spaces.utils.flatdim(obs_space)
         self.act_dim = gym.spaces.utils.flatdim(action_space)
 
-        self.graph_size = custom_model_kwargs.get("graph_size", 100)
-        self.gcn_outsize = custom_model_kwargs.get("gcn_output_size", 256)
-        self.gcn_h_size = custom_model_kwargs.get("gcn_hidden_size", 512)
-        self.gcn_num_layers = custom_model_kwargs.get("gcn_num_layers", 2)
-        self.gcn_num_attn_heads = custom_model_kwargs.get("gcn_num_attn_heads", 1)
-        self.gcn_conv_type = custom_model_kwargs.get(
-            "gcn_conv_type", torch_geometric.nn.GCNConv
+        self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
+        self.build_network(self.cfg)
+        print("GNN network is:", self.gnn)
+
+        assert all(
+            [e in self.EDGE_SELECTORS for e in self.cfg["edge_selectors"]]
+        ), "Invalid edge selectors"
+        assert (
+            model_config["max_seq_len"] <= self.cfg["graph_size"]
+        ), "max_seq_len cannot be more than graph size"
+
+        self.cur_val = None
+
+    def build_network(self, cfg):
+        """Builds the GNN and MLPs based on config"""
+        layer_sizes = (
+            np.ones((cfg["gcn_num_layers"] + 1,), dtype=np.int32)
+            * cfg["gcn_hidden_size"]
         )
-        self.gcn_act_type = custom_model_kwargs.get("gcn_act_type", torch.nn.ReLU)
-
-        # Build GCN layers
-        layer_sizes = np.logspace(
-            start=np.log2(self.obs_dim),
-            stop=np.log2(self.gcn_outsize),
-            num=self.gcn_num_layers + 1,
-            base=2,
-        ).astype(np.int32)
-
-        num_heads = np.logspace(
-            start=np.log2(self.gcn_num_attn_heads),
-            stop=0,
-            num=self.gcn_num_layers,
-            base=2,
-        ).astype(np.int32)
+        num_heads = (
+            np.ones((cfg["gcn_num_layers"],), dtype=np.int32)
+            * cfg["gcn_num_attn_heads"]
+        )
         # These must be exact
         layer_sizes[0] = self.obs_dim
-        layer_sizes[-1] = self.gcn_outsize
+        layer_sizes[-1] = cfg["gcn_output_size"]
         num_heads = np.insert(num_heads, 0, 1)
         num_heads[-1] = 1
 
         layers = {}
-        for layer in range(self.gcn_num_layers):
+        for layer in range(cfg["gcn_num_layers"]):
             in_size = layer_sizes[layer]
             out_size = layer_sizes[layer + 1]
             in_heads = num_heads[layer]
             out_heads = num_heads[layer + 1]
 
-            if self.gcn_conv_type == torch_geometric.nn.GATConv:
-                layers[f"graph_{layer}"] = torch_geometric.nn.GATConv(
+            if cfg["gcn_conv_type"] == torch_geometric.nn.GATConv:
+                layers[f"graph_{layer}"] = cfg["gcn_conv_type"](
                     int(in_heads * in_size), out_size, out_heads
                 )
             else:
-                layers[f"graph_{layer}"] = torch_geometric.nn.GCNConv(in_size, out_size)
+                layers[f"graph_{layer}"] = cfg["gcn_conv_type"](in_size, out_size)
 
-            layers[f"act_{layer}"] = self.gcn_act_type()
+            layers[f"act_{layer}"] = cfg["gcn_act_type"]()
 
         self.gnn = nn.ModuleDict(layers)
-        print("GNN network is:", self.gnn)
-        """
-        self.simple = nn.ModuleDict({
-            'fc0': nn.Linear(self.obs_dim, self.gcn_outsize),
-            'act0': nn.ReLU()
-        })
-        """
-
-        self.edge_selector = model_config.get("edge_selector", "temporal")
-        assert self.edge_selector in ["temporal", "dense", "knn-mse", "knn-cos"]
 
         self.logit_branch = SlimFC(
-            in_size=self.gcn_outsize,
+            in_size=cfg["gcn_output_size"],
             out_size=self.num_outputs,
             activation_fn=None,
             initializer=torch.nn.init.xavier_uniform_,
         )
 
         self.value_branch = SlimFC(
-            in_size=self.gcn_outsize,
+            in_size=cfg["gcn_output_size"],
             out_size=1,
             activation_fn=None,
             initializer=torch.nn.init.xavier_uniform_,
         )
 
-        self.cur_val = None
-
     def get_initial_state(self):
-        edges = torch.zeros((self.graph_size, self.graph_size), dtype=torch.long)
-        nodes = torch.zeros((self.graph_size, self.obs_dim))
+        edges = torch.zeros(
+            (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
+        )
+        nodes = torch.zeros((self.cfg["graph_size"], self.obs_dim))
         num_nodes = torch.tensor([0], dtype=torch.long)
         return [num_nodes, nodes, edges]
 
@@ -192,6 +204,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 pe = torch.cos(pe)
 
             nodes[b] = nodes[b] + pe
+
+    def add_pose_edges(self, nodes, adj_mats, num_nodes):
+        pass
 
     def make_pose_relative(self, nodes, num_nodes):
         """The GPS observation is in global coordinates. To ensure locality,
@@ -256,12 +271,14 @@ class RayObsGraph(TorchModelV2, nn.Module):
             if len(flat.shape) > 2:
                 flat = flat[:, t, :].squeeze(1)
 
+            """
             # We have limited space reserved, rewrite at the zeroth entry if we run out
             # of space
             graph_overflows = num_nodes == self.graph_size - 1
             if torch.any(graph_overflows):
                 print("error: ran out of graph space, starting from zero")
                 num_nodes[graph_overflows] = 0
+            """
 
             # Add new nodes to graph at the next free index (num_nodes)
             batch_idxs = torch.arange(num_nodes.shape[0])
@@ -275,20 +292,20 @@ class RayObsGraph(TorchModelV2, nn.Module):
             self.add_self_edge(adj_mats, num_nodes)
 
             # Add other edges based on config
-            if self.edge_selector == "temporal":
+            if "temporal" in self.cfg["edge_selectors"]:
                 # Add edge to obs at t-1
                 self.add_backedge(adj_mats, num_nodes)
-            elif self.edge_selector == "dense":
+            if "pose" in self.cfg["edge_selectors"]:
+                pass
+            if "dense" in self.cfg["edge_selectors"]:
                 # Add every possible edge to graph
                 self.densify_graph(adj_mats, num_nodes)
-            elif self.edge_selector == "knn-mse":
+            if "knn-mse" in self.cfg["edge_selectors"]:
                 # Neighborhoods based on mse distance
                 self.add_knn_edges(adj_mats, nodes, num_nodes, F.mse_loss)
-            elif self.edge_selector == "knn-cos":
+            if "knn-cos" in self.cfg["edge_selectors"]:
                 # Neigborhoods based on cosine similarity
                 self.add_knn_edges(adj_mats, nodes, num_nodes, F.cosine_similarity)
-            else:
-                raise Exception("No edge selector")
 
             # GCN uses sparse edgelist
             # For batch mode, torch_geometric expects a specific format
@@ -318,7 +335,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             # torch_geometric will have collapsed dims[0,1] into dim[0]
             # reconstruct but use gcn output feature size
             # After reshape, out is [Batch, node, gcn_outsize (aka feat)]
-            out = torch.reshape(out, (*nodes.shape[:-1], self.gcn_outsize))
+            out = torch.reshape(out, (*nodes.shape[:-1], self.cfg["gcn_output_size"]))
             # We only care about observation at our newly added node
             # Index each batch by num_nodes (the node we just inserted) to get
             # the target node for each batch
