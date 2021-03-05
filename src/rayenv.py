@@ -22,7 +22,10 @@ class NavEnv(habitat.RLEnv):
     def __init__(self, cfg):
         self.visualize_lvl = cfg["visualize"]
         self.hab_cfg = habitat.get_config(config_paths=cfg["hab_cfg_path"])
+        self.ray_cfg = cfg
         self.rewards = [reward_cls() for reward_cls in cfg["rewards"].values()]
+        # Use only a subset of scenes to avoid memory pressure
+        self.select_scene_subset(cfg, self.hab_cfg)
         # TODO: Set different random seeds for different workers (based on pid maybe)
         super().__init__(self.hab_cfg)
 
@@ -30,7 +33,8 @@ class NavEnv(habitat.RLEnv):
         # so we can use PIDs to determine which actor is running
         self.pid = os.getpid()
         # Setup debug rendering
-        self.render_dir = f"{RENDER_ROOT}/{self.pid}"
+        # worker_idx is populated by ray
+        self.render_dir = f"{RENDER_ROOT}/{self.ray_cfg.worker_index}"
         os.makedirs(self.render_dir, exist_ok=True)
         # Patch action space since habitat actions use custom spaces for some reason
         # TODO: these should translate for continuous/arbitrary action distribution
@@ -45,6 +49,37 @@ class NavEnv(habitat.RLEnv):
         self.observation_space = obs_transformers.apply_obs_transforms_obs_space(
             self.observation_space, self.preprocessors
         )
+
+    def select_scene_subset(self, ray_cfg, hab_cfg):
+        """Reduces the number of scenes for this environment. This helps alleviate memory
+        pressure. Note that the left out scenes will be handled by other environments"""
+        # Ray populates these
+        # Worker starts at 1 not 0 (unless --local is passed)
+        split = ray_cfg.worker_index - 1
+        num_splits = ray_cfg.num_workers
+
+        # Single process cases
+        # 0 is --local
+        # 1 is a single worker
+        if ray_cfg.worker_index < 2:
+            return
+        # Worker includes the learner, so
+
+        dataset = habitat.datasets.make_dataset(hab_cfg.DATASET.TYPE)
+        scenes = hab_cfg.DATASET.CONTENT_SCENES
+        if "*" in hab_cfg.DATASET.CONTENT_SCENES:
+            scenes = dataset.get_scenes_to_load(hab_cfg.DATASET)
+
+        scene_splits = [[] for _ in range(num_splits)]
+        for idx, scene in enumerate(scenes):
+            scene_splits[idx % len(scene_splits)].append(scene)
+
+        assert sum(map(len, scene_splits)) == len(scenes)
+
+        hab_cfg.defrost()
+        hab_cfg.DATASET.CONTENT_SCENES = scene_splits[split]
+        hab_cfg.freeze()
+        print(f"Env {split} loading scenes: {scene_splits[split]}")
 
     def emit_debug_imgs(self, obs, info, keys=[]):
         """Emit debug images to be served over the browser"""
