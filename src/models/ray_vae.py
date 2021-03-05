@@ -22,38 +22,24 @@ class RayVAE(TorchModelV2, VAE):
         name: str,
     ):
         super().__init__(obs_space, action_space, num_outputs, model_config, name)
-        # TODO: We should inherit from VAE instead of set to member var
-        # super(VAE).__init__()
         VAE.__init__(self)
-
-    def variables(
-        self, as_dict: bool = False
-    ) -> Union[List[TensorType], Dict[str, TensorType]]:
-        p = list(self.parameters())
-        if as_dict:
-            return {k: p[i] for i, k in enumerate(self.state_dict().keys())}
-        return p
-
-    def trainable_variables(
-        self, as_dict: bool = False
-    ) -> Union[List[TensorType], Dict[str, TensorType]]:
-        if as_dict:
-            return {
-                k: v for k, v in self.variables(as_dict=True).items() if v.requires_grad  # type: ignore
-            }
-        return [v for v in self.variables() if v.requires_grad]  # type: ignore
+        self.sem_loss_fn = nn.CosineEmbeddingLoss(reduction="mean")
+        self.depth_loss_fn = nn.MSELoss(reduction="mean")
+        self.act_space = gym.spaces.utils.flatdim(action_space)
+        self.export_video = model_config.get("export_video")
 
     def forward(self, input_dict, state, seq_lens):
         """Compute autoencoded image. Note the returned "logits"
         are random, as we want random actions"""
         self.curr_ae_input = self.to_img(input_dict)
-        # TODO figure out why inheritance is such shit
         self.curr_ae_output, self.curr_mu, self.curr_logvar = VAE.forward(
             self, self.curr_ae_input
         )
-        obs = input_dict["obs"]
-        self._curr_value = torch.zeros((obs["gps"].shape[0],)).to(obs["gps"].device)
-        out = torch.zeros((obs["gps"].shape[0], 5)).to(obs["gps"].device)
+        batch = input_dict["obs_flat"].shape[0]
+        device = input_dict["obs_flat"].device
+        self._curr_value = torch.zeros((batch,), device=device)
+        out = torch.zeros((batch, self.act_space), device=device)
+
         # Return [batch, action_space]
         return out, state
 
@@ -85,49 +71,30 @@ class RayVAE(TorchModelV2, VAE):
     def custom_loss(
         self, policy_loss: List[torch.Tensor], loss_inputs
     ) -> List[torch.Tensor]:
-        """
-        if any([torch.abs(l) for l in loss_inputs] > 1e-8):
-            print(f"Warning -- nonzero policy loss: {policy_loss}")
-        """
-        # BCE = nn.functional.binary_cross_entropy(
-        #        self.curr_ae_output, self.curr_ae_input, size_average=False).to(policy_loss[0].device)
-        # How important is depth compared to semantic
-        depth_to_sem_ratio = 1 / 4
-        # Weight 1x depth image the same as 1x semantic image
-        sem_factor = 1 / (self.curr_ae_output.shape[1] - 1)
-        MSE_sem = nn.functional.mse_loss(
+        if not hasattr(self, "sem_tgt"):
+            self.sem_tgt = torch.ones(
+                self.curr_ae_input.shape[-2:], device=self.curr_ae_input.device
+            )
+
+        self.sem_loss = self.sem_loss_fn(
             self.curr_ae_output[:, :-1, :, :],
             self.curr_ae_input[:, :-1, :, :],
+            self.sem_tgt,
         )
-        MSE_depth = nn.functional.mse_loss(
+
+        self.depth_loss = 2 * self.depth_loss_fn(
             self.curr_ae_output[:, -1, :, :],
             self.curr_ae_input[:, -1, :, :],
         )
-        MSE = MSE_sem * sem_factor + MSE_depth * depth_to_sem_ratio
-        # MSE = nn.functional.mse_loss(
-        #    self.curr_ae_output, self.curr_ae_input, reduction="sum"
-        # )
+        self.recon_loss = self.sem_loss + self.depth_loss
+        self.kld_loss = VAE.kld_loss(self, self.curr_mu, self.curr_logvar)
+        self.combined_loss = self.recon_loss + self.kld_loss
 
-        # see Appendix B from VAE paper:
-        # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-        KLD = -0.5 * torch.mean(
-            1 + self.curr_logvar - self.curr_mu.pow(2) - self.curr_logvar.exp()
-        )
-        combined = MSE + KLD
-        combined *= self.curr_ae_output.shape[0]  # Scale loss by # samples
-        self.mse_loss = MSE
-        self.kld_loss = KLD
-        self.combined_loss = combined
-        print(
-            f"Losses: Sem: {MSE_sem} Depth: {MSE_depth} MSE: {MSE.item()} KLD: {KLD.item()} Combined: {combined.item()}"
-        )
-
-        return [combined]
+        return [self.combined_loss]
 
     def metrics(self):
         return {
-            "mse_loss": self.mse_loss.detach().item(),
-            "kld_loss": self.kld_loss.detach().item(),
+            "depth_loss": self.depth_loss.detach().item(),
+            "semantic_loss": self.sem_loss.detach().item(),
             "combined_loss": self.combined_loss.detach().item(),
         }

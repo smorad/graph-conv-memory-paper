@@ -8,7 +8,8 @@ from torch import nn
 class VAE(nn.Module):
     # On CPU this takes 2.5ms to encode
     # on GPU, 886 microsecs
-    def __init__(self, image_channels=3, h_dim=2048, z_dim=64):
+    def __init__(self, h_dim=2048, z_dim=128):
+        assert h_dim in [2048]
         super().__init__()
         self.z_dim = z_dim
         self.encoder = nn.Sequential(
@@ -62,6 +63,9 @@ class VAE(nn.Module):
         z, mu, logvar = self.encode(x)
         z = self.decode(z)
         return z, mu, logvar
+
+    def kld_loss(self, mu, logvar):
+        return -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
     def loss_fn(self, recon_x, x, mu, logvar):
         BCE = nn.functional.binary_cross_entropy(recon_x, x, size_average=False)
