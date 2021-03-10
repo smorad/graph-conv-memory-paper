@@ -34,7 +34,7 @@ class NavEnv(habitat.RLEnv):
         self.pid = os.getpid()
         # Setup debug rendering
         # worker_idx is populated by ray
-        self.render_dir = f"{RENDER_ROOT}/{self.ray_cfg.worker_index}"
+        self.render_dir = f"{RENDER_ROOT}/{self.pid}"
         os.makedirs(self.render_dir, exist_ok=True)
         # Patch action space since habitat actions use custom spaces for some reason
         # TODO: these should translate for continuous/arbitrary action distribution
@@ -55,6 +55,8 @@ class NavEnv(habitat.RLEnv):
         pressure. Note that the left out scenes will be handled by other environments"""
         # Ray populates these
         # Worker starts at 1 not 0 (unless --local is passed)
+        if not hasattr(ray_cfg, "worker_index"):
+            return
         split = ray_cfg.worker_index - 1
         num_splits = ray_cfg.num_workers
 
@@ -67,6 +69,11 @@ class NavEnv(habitat.RLEnv):
 
         dataset = habitat.datasets.make_dataset(hab_cfg.DATASET.TYPE)
         scenes = hab_cfg.DATASET.CONTENT_SCENES
+
+        # Not enough scenes, no need to split
+        if len(scenes) < num_splits:
+            return
+
         if "*" in hab_cfg.DATASET.CONTENT_SCENES:
             scenes = dataset.get_scenes_to_load(hab_cfg.DATASET)
 
