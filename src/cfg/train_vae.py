@@ -1,7 +1,7 @@
 import os
 
 from ray.rllib.agents.impala import ImpalaTrainer
-from ray.tune import register_env
+from ray.tune import register_env, grid_search
 
 from preprocessors.compass_fix import CompassFix
 from preprocessors.semantic.quantized_mesh import QuantizedSemanticMask
@@ -44,6 +44,9 @@ CFG = {
         "model": {
             "framestack": False,
             "custom_model": RayVAE,
+            "custom_model_config": {
+                "z_dim": 256,  # grid_search([256, 384, 512]),
+            },
         },
         "num_workers": 8,
         "num_cpus_per_worker": 4,
@@ -62,5 +65,6 @@ CFG = {
     },
     "tune": {
         "goal_metric": {"metric": "custom_metrics/ae_combined_loss", "mode": "min"},
+        "stop": {"info/num_steps_trained": 10e6},
     },
 }

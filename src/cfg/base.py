@@ -62,4 +62,6 @@ CFG = {
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
     },
+    # Env to be loaded when mode == human
+    "human_env": NavEnv,
 }
