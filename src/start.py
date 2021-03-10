@@ -27,27 +27,35 @@ def get_args():
     parser.add_argument("master_cfg", help="Path to the master .py config file")
     parser.add_argument("--mode", help="Train, eval, or human", default="train")
     parser.add_argument(
-        "--object-store-mem", help="Size of object store in bytes", default=3e10
+        "--object-store-mem",
+        help="Size of object store in bytes. If this is too small ray will complain",
+        default=3e10,
     )
     parser.add_argument(
-        "--local", action="store_true", default=False, help="Run ray in local mode"
+        "--local",
+        action="store_true",
+        default=False,
+        help="Run ray in local mode. Useful for debugging, allows the use of local pdb",
     )
     parser.add_argument(
         "--visualize",
         "-v",
         default=1,
         type=int,
-        help="Visualization level, higher == more visualization == slower",
+        help="Visualization level, higher == more visualization == slower. Set to 0 if not using NavEnv or you will get an error.",
     )
     parser.add_argument(
         "--export-torch",
         "-e",
         default=None,
-        type=str,
-        help="Export saved rllib model as torch to this path",
+        nargs=2,
+        help="Export saved rllib model from {ray_checkpoint} to {path}. Note {ray_checkpoint} is the path to the file, e.g. /root/vnav/data/IMPALA_2021-03-06_11-59-34/IMPALA_NavEnv_6aebc_00000_0_z_dim=256_2021-03-06_11-59-34/checkpoint_1999/checkpoint-1999",
     )
     parser.add_argument(
-        "--resume", default=None, type=str, help="Resume training after interruption"
+        "--resume",
+        default=None,
+        type=str,
+        help="Resume training after interruption, using the top-level dir in ~/ray_results (e.g. IMPALA_2021-03-06_11-59-34",
     )
     parser.add_argument(
         "--profile",
@@ -87,12 +95,17 @@ def train(args, cfg):
         parameter_columns=[],
     )
 
-    stop_cond = cfg.get("tune", {}).get("stop", {})
-    goal_metric = cfg.get(
+    tune_cfg = cfg.get("tune", {})
+    stop_cond = tune_cfg.get("stop", {})
+    goal_metric = tune_cfg.get(
         "goal_metric", {"metric": "episode_reward_mean", "mode": "max"}
     )
-    num_samples = cfg.get("tune", {}).get("num_samples", 1)
-    search_alg = cfg.get("tune", {}).get("search_alg", None)
+    num_samples = tune_cfg.get("num_samples", 1)
+    search_alg = tune_cfg.get("search_alg", None)
+    # Required for checkpoint logic
+    cpt_metric = goal_metric["metric"]
+    if goal_metric["mode"] == "min":
+        cpt_metric = "min-" + cpt_metric
 
     if args.profile:
         prof = profiler.profile(record_shapes=True, profile_memory=True)
@@ -105,8 +118,9 @@ def train(args, cfg):
         num_samples=num_samples,
         progress_reporter=reporter,
         stop=stop_cond,
-        keep_checkpoints_num=3,
-        checkpoint_score_attr=goal_metric["metric"],
+        keep_checkpoints_num=5,
+        checkpoint_score_attr=cpt_metric,
+        checkpoint_freq=10,
         checkpoint_at_end=True,
         metric=goal_metric["metric"],
         mode=goal_metric["mode"],
@@ -120,6 +134,23 @@ def train(args, cfg):
         print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=20))
 
     print(f"Best trial: {analysis.best_trial}")
+
+
+def export_torch(args, cfg):
+    """Convert a ray checkpoint to a torch checkpoint"""
+    ray.init(
+        dashboard_host="0.0.0.0",
+        local_mode=args.local,
+        object_store_memory=args.object_store_mem,
+    )
+    # Don't load multiple envs for the sake of time
+    cfg["ray"]["num_workers"] = 0
+    cfg["ray"]["env_config"][
+        "hab_cfg_path"
+    ] = f"{os.path.abspath(os.path.dirname(__file__))}/cfg/objectnav_mp3d_train_val_mini.yaml"
+    train = cfg["ray_trainer"](env=cfg["ray"]["env"], config=cfg["ray"])
+    train.restore(args.export_torch[0])
+    torch.save(train.get_policy().model, args.export_torch[1])
 
 
 def evaluate(args, cfg):
@@ -175,8 +206,9 @@ def evaluate(args, cfg):
 
 
 def human(args, cfg, act_q, resp_q):
-    env_class = util.load_class(cfg, "env_wrapper")
-    env = env_class(cfg=cfg["ray"]["env_config"])
+    # env_class = util.load_class(cfg, "env_wrapper")
+    # env = env_class(cfg=cfg["ray"]["env_config"])
+    env = cfg["human_env"](cfg=cfg["ray"]["env_config"])
     ep = 0
     done = False
     action_map = {"w": 0, "a": 1, "d": 2, "q": 3, "e": 4, " ": 5}
@@ -235,6 +267,8 @@ def main():
         tune(args, cfg)
     elif args.mode == "eval":
         evaluate(args, cfg)
+    elif args.mode == "export":
+        export_torch(args, cfg)
     elif args.mode == "human":
         human(args, cfg, action_q, resp_q)
     else:
