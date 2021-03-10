@@ -12,6 +12,9 @@ from ray.rllib.models.torch.fcnet import FullyConnectedNetwork as TorchFC
 from models.vae import VAE
 
 
+DEFAULTS = {"z_dim": 128, "depth_to_semantic_weight": 2}
+
+
 class RayVAE(TorchModelV2, VAE):
     def __init__(
         self,
@@ -20,13 +23,15 @@ class RayVAE(TorchModelV2, VAE):
         num_outputs: int,
         model_config: ModelConfigDict,
         name: str,
+        **custom_model_kwargs
     ):
         super().__init__(obs_space, action_space, num_outputs, model_config, name)
-        VAE.__init__(self)
+        self.cfg = dict(DEFAULTS, **custom_model_kwargs)
+        VAE.__init__(self, z_dim=self.cfg["z_dim"])
         self.sem_loss_fn = nn.CosineEmbeddingLoss(reduction="mean")
         self.depth_loss_fn = nn.MSELoss(reduction="mean")
         self.act_space = gym.spaces.utils.flatdim(action_space)
-        self.export_video = model_config.get("export_video")
+        self.export_video = model_config.get("export_video", False)
 
     def forward(self, input_dict, state, seq_lens):
         """Compute autoencoded image. Note the returned "logits"
@@ -76,13 +81,18 @@ class RayVAE(TorchModelV2, VAE):
                 self.curr_ae_input.shape[-2:], device=self.curr_ae_input.device
             )
 
-        self.sem_loss = self.sem_loss_fn(
-            self.curr_ae_output[:, :-1, :, :],
-            self.curr_ae_input[:, :-1, :, :],
-            self.sem_tgt,
+        wt = self.cfg["depth_to_semantic_weight"]
+        self.sem_loss = (
+            1
+            / wt
+            * self.sem_loss_fn(
+                self.curr_ae_output[:, :-1, :, :],
+                self.curr_ae_input[:, :-1, :, :],
+                self.sem_tgt,
+            )
         )
 
-        self.depth_loss = 2 * self.depth_loss_fn(
+        self.depth_loss = wt * self.depth_loss_fn(
             self.curr_ae_output[:, -1, :, :],
             self.curr_ae_input[:, -1, :, :],
         )
