@@ -4,6 +4,7 @@ import numpy as np
 import gym
 from torch import nn
 import torch.nn.functional as F
+from torch.distributions.bernoulli import Bernoulli
 from typing import Union, Dict, List, Tuple
 import ray
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
@@ -65,7 +66,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         "edge_selectors": ["temporal"],
     }
 
-    EDGE_SELECTORS = ["temporal", "dense", "pose", "knn-mse", "knn-cos"]
+    EDGE_SELECTORS = ["temporal", "dense", "pose", "knn-mse", "knn-cos", "learned"]
 
     def __init__(
         self,
@@ -95,7 +96,10 @@ class RayObsGraph(TorchModelV2, nn.Module):
             model_config["max_seq_len"] <= self.cfg["graph_size"]
         ), "max_seq_len cannot be more than graph size"
 
+        if "learned" in self.cfg["edge_selectors"]:
+            self.build_edge_network()
         self.cur_val = None
+        self.fwd_iters = 0
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
@@ -187,6 +191,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         batch = adj_mats.shape[0]
         batch_idxs = torch.arange(batch)
         curr_node_idxs = num_nodes[batch_idxs].squeeze()
+
         adj_mats[batch_idxs, curr_node_idxs, curr_node_idxs] = 1
 
     def add_knn_edges(self, nodes, adj_mats, num_nodes, dist_measure):
@@ -207,6 +212,45 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
     def add_pose_edges(self, nodes, adj_mats, num_nodes):
         pass
+
+    def build_edge_network(self):
+        """A(i,j) = Ber[sigma phi(cat(i, j)), e]"""
+        self.edge_network = nn.Sequential(
+            nn.Linear(2 * self.obs_dim, self.obs_dim),
+            nn.ReLU(),
+            # Output is [yes_edge, no_edge]
+            nn.Linear(self.obs_dim, 2),
+            # nn.Sigmoid()
+            nn.ReLU(),
+        )
+
+    def add_learned_edges(self, nodes, adj_mats, num_nodes):
+        """A(i,j) = Ber[sigma phi(i || j), e]"""
+        # a(b,i,j) = sigma(phi(n(b,i) || n(b,j))) for i, j < num_nodes
+        # Shape [batch, 1]
+        batch = nodes.shape[0]
+
+        """
+        for b in range(batch):
+            # View of the submatrices
+            # our matrix has a fixed shape, but we are only concerned up to
+            # the num_nodes'th element
+            #
+            # shape [num_nodes, feat]
+            nodeview = nodes[b].narrow(dim=0, start=0, length=num_nodes[b]+1)
+            # shape [num_nodes, num_nodes]
+            adjview = adj_mats[b].narrow(dim=0, start=0, length=num_nodes[b]+1).narrow(dim=1, start=0, length=num_nodes[b]+1)
+            for i in range(nodeview.shape[0]):
+        """
+
+        for b in range(batch):
+            for i in range(num_nodes[b] + 1):
+                for j in range(num_nodes[b] + 1):
+                    cat_vect = torch.cat((nodes[b, i], nodes[b, j]))
+                    p = self.edge_network(cat_vect)
+                    # Gumbel expects logits, not probs
+                    z = nn.functional.gumbel_softmax(p, hard=True)
+                    adj_mats[b, i, j] = z[0]
 
     def make_pose_relative(self, nodes, num_nodes):
         """The GPS observation is in global coordinates. To ensure locality,
@@ -233,6 +277,21 @@ class RayObsGraph(TorchModelV2, nn.Module):
         """
         pass
 
+    def gc_check(self):
+        import torch
+        import gc
+
+        print("ITER")
+        for obj in gc.get_objects():
+            try:
+                if torch.is_tensor(obj) or (
+                    hasattr(obj, "data") and torch.is_tensor(obj.data)
+                ):
+                    if type(obj) != torch.nn.parameter.Parameter:
+                        print(type(obj), obj.size())
+            except Exception:
+                pass
+
     def forward(
         self,
         input_dict: Dict[str, TensorType],
@@ -255,8 +314,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # We only care about latest obs, but we get seq_lens[i] worth of obs
         # TODO: IMPORTANT - ensure we want idx 0 and not -1
         # It looks like input is ordered [t-n, t-n+1, ... t]
-        # but output is ordered [t, t-1, ... t-n]
-        # make sure this is actually correct
         num_nodes, nodes, adj_mats = state
         num_nodes = num_nodes.long()
         adj_mats = adj_mats.long()
@@ -271,14 +328,17 @@ class RayObsGraph(TorchModelV2, nn.Module):
             if len(flat.shape) > 2:
                 flat = flat[:, t, :].squeeze(1)
 
-            """
             # We have limited space reserved, rewrite at the zeroth entry if we run out
             # of space
-            graph_overflows = num_nodes == self.graph_size - 1
+            graph_overflows = num_nodes == self.cfg["graph_size"]
             if torch.any(graph_overflows):
-                print("error: ran out of graph space, starting from zero")
+                print(
+                    "warning: ran out of graph space, overwriting old nodes (seq_len, graph_size):",
+                    T,
+                    self.cfg["graph_size"],
+                    "(You can ignore this for the first backwards pass)",
+                )
                 num_nodes[graph_overflows] = 0
-            """
 
             # Add new nodes to graph at the next free index (num_nodes)
             batch_idxs = torch.arange(num_nodes.shape[0])
@@ -306,6 +366,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
             if "knn-cos" in self.cfg["edge_selectors"]:
                 # Neigborhoods based on cosine similarity
                 self.add_knn_edges(adj_mats, nodes, num_nodes, F.cosine_similarity)
+            if "learned" in self.cfg["edge_selectors"]:
+                self.add_learned_edges(nodes, adj_mats, num_nodes)
 
             # GCN uses sparse edgelist
             # For batch mode, torch_geometric expects a specific format
@@ -357,47 +419,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         self.cur_val = values.squeeze(1)
 
-        return logits, state
+        # import GPUtil
+        # print('iter', self.fwd_iters)
+        # GPUtil.showUtilization()
 
-    def forward_debug(
-        self,
-        input_dict: Dict[str, TensorType],
-        state: List[TensorType],
-        seq_lens: TensorType,
-    ) -> Tuple[TensorType, List[TensorType]]:
-
-        obs = input_dict["obs_flat"]
-        batch_size = obs.shape[0]
-
-        logits = self.simple(obs)
-
-        """
-        # Test if shape changes ok
-        print('input', state[0].shape, state[0].max())
-        state[0] = torch.cat( (state[0], torch.ones((batch_size, 1), device=state[0].device)))
-        print('output', state[0].shape, state[0].max())
-        """
-
-        """
-        # Test if state propagates
-        state[0] += 5
-        print(state[0].shape, state[0].max())
-        """
-
-        """
-        # Test trajectory view
-        print(input_dict['prev_obs'].shape)
-        """
-
-        """
-        # Test trajectory view padding
-        print(torch.nonzero(input_dict['prev_obs']).shape)
-        """
-        # Outputs:
-        # logits: [batch_size, num_outputs]
-        # cur_val: [batch_size,]
-        # logits = torch.zeros((batch_size, self.num_outputs)).to("cuda")
-        self.cur_val = torch.zeros((batch_size, 1)).squeeze(1).to("cuda")
-        # self.value_branch(out).squeeze(1).to("cuda")
-
+        self.fwd_iters += 1
         return logits, state

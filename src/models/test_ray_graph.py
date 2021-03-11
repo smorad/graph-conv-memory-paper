@@ -49,6 +49,33 @@ class TestAdj(unittest.TestCase):
             self.fail(f"\nactual:\n {self.nodes}\nexpected:\n {sol}")
     """
 
+    def test_learn_edges(self):
+        class Fake:
+            i = 0
+
+            def edge_network(self, a):
+                rv = torch.tensor(
+                    (self.i % 2 * 1e9, int(self.i % 2 == 0) * 1e9), dtype=torch.float32
+                )
+                self.i += 1
+                return rv
+
+        sol = torch.tensor(
+            [
+                [
+                    [0, 1, 0],  # Only top 2x2 chunk is used
+                    [0, 1, 0],
+                    [0, 0, 0],
+                ],
+                [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
+            ],
+            dtype=torch.float,
+        )
+        self.g.add_learned_edges(Fake(), self.nodes, self.adj, self.num_nodes)
+
+        if torch.any(self.adj != sol):
+            self.fail(f"\nactual:\n {self.adj}\nexpected:\n {sol}")
+
     def test_index_select(self):
         nodes0 = torch.arange(24).reshape(2, 3, 4)
         nodes1 = torch.arange(24).reshape(2, 3, 4)
