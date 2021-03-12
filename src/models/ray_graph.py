@@ -19,6 +19,8 @@ from ray.rllib.policy.view_requirement import ViewRequirement
 import torch_geometric
 from torch_geometric.data import Data, Batch
 
+from models.edge_selectors.temporal import TemporalBackedge
+
 ## What I've found
 ## if we disable trajectory view:
 ##      we must implement get_initial_state
@@ -63,10 +65,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
         "gcn_act_type": torch.nn.ReLU,
         # Methodologies for building edges
         # can be [temporal, dense, knn-mse, knn-cos]
-        "edge_selectors": ["temporal"],
+        "edge_selectors": [],
     }
-
-    EDGE_SELECTORS = ["temporal", "dense", "pose", "knn-mse", "knn-cos", "learned"]
 
     def __init__(
         self,
@@ -89,15 +89,12 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.build_network(self.cfg)
         print("GNN network is:", self.gnn)
 
-        for e in self.cfg["edge_selectors"]:
-            assert e in self.EDGE_SELECTORS, f"Invalid edge selector: {e}"
+        self.edge_selectors = [e(self) for e in self.cfg["edge_selectors"]]
 
         assert (
             model_config["max_seq_len"] <= self.cfg["graph_size"]
         ), "max_seq_len cannot be more than graph size"
 
-        if "learned" in self.cfg["edge_selectors"]:
-            self.build_edge_network()
         self.cur_val = None
         self.fwd_iters = 0
 
@@ -161,21 +158,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         assert self.cur_val is not None, "must call forward() first"
         return self.cur_val
 
-    def add_backedge(self, adj_mats, num_nodes):
-        """Add temporal bidirectional back edge, but only if we have >1 nodes
-        E.g., node_{t} <-> node_{t-1}"""
-        batch = adj_mats.shape[0]
-
-        batch_idxs = torch.arange(batch)
-        curr_node_idxs = num_nodes[batch_idxs].squeeze()
-        # Zeroth node cant have backedge
-        mask = curr_node_idxs > 1
-        batch_idxs = batch_idxs.masked_select(mask)
-        curr_node_idxs = curr_node_idxs.masked_select(mask)
-
-        adj_mats[batch_idxs, curr_node_idxs, curr_node_idxs - 1] = 1
-        adj_mats[batch_idxs, curr_node_idxs - 1, curr_node_idxs] = 1
-
     def densify_graph(self, adj_mats, num_nodes):
         """Connect all nodes to all other nodes. In other words,
         the adjacency matrix is all 1's for a specific row and column
@@ -183,18 +165,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         batch = adj_mats.shape[0]
         for b in range(batch):
             adj_mats[b, : num_nodes[b] + 1, : num_nodes[b] + 1] = 1
-
-    def add_self_edge(self, adj_mats, num_nodes):
-        """Add a self edge to the latest node in the graph
-        (graph[num_node] <-> graph[num_node])"""
-        batch = adj_mats.shape[0]
-        batch_idxs = torch.arange(batch)
-        curr_node_idxs = num_nodes[batch_idxs].squeeze()
-
-        adj_mats[batch_idxs, curr_node_idxs, curr_node_idxs] = 1
-
-    def add_knn_edges(self, nodes, adj_mats, num_nodes, dist_measure):
-        raise NotImplementedError()
 
     def add_time_positional_encoding(self, nodes, num_nodes):
         """Add a 1D cosine/sine positional embedding to the current node"""
@@ -208,62 +178,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 pe = torch.cos(pe)
 
             nodes[b] = nodes[b] + pe
-
-    def add_pose_edges(self, nodes, adj_mats, num_nodes):
-        pass
-
-    def build_edge_network(self):
-        """Builds a network to predict edges.
-        Input: (i || j)
-        Output: [p(edge), 1-p(edge)] in R^2
-        """
-        self.edge_network = nn.Sequential(
-            nn.Linear(2 * self.obs_dim, self.obs_dim),
-            nn.ReLU(),
-            # Output is [yes_edge, no_edge]
-            nn.Linear(self.obs_dim, 2),
-            # We want output to be -inf, inf so do not
-            # use ReLU as final activation
-            # nn.Sigmoid()
-        )
-
-    def add_learned_edges(self, nodes, adj_mats, num_nodes):
-        """A(i,j) = Ber[phi(i || j), e]"""
-        # a(b,i,j) = gumbel_softmax(phi(n(b,i) || n(b,j))) for i, j < num_nodes
-        # Shape [batch, 1]
-        batch = nodes.shape[0]
-        # TODO: Do we want to learn the self edge?
-
-        """
-        # (i || j) mat
-        cat_mat = torch.zeros((batch, *nodes.shape[:-1], 2 *  nodes.shape[-1]))
-        for b in range(batch):
-            # View of the submatrices
-            # our matrix has a fixed shape, but we are only concerned up to
-            # the num_nodes'th element
-            #
-            # shape [num_nodes, feat]
-            nodeview = nodes[b].narrow(dim=0, start=0, length=num_nodes[b]+1)
-            # shape [num_nodes, num_nodes]
-            adjview = adj_mats[b].narrow(dim=0, start=0, length=num_nodes[b]+1).narrow(dim=1, start=0, length=num_nodes[b]+1)
-            # ((i0, i0, ... i1, i1, ... ... in, in), (j0, j0, ... ... jn, jn)
-            cat_vects = tuple(zip(*tuple(itertools.permutations(nodeview, 2))))
-            # i, j nodes
-            ii = torch.stack(cat_vects[0])
-            jj = torch.stack(cat_vects[1])
-            # Reshape to row == (i || j)
-            ii = i.reshape((i.shape[0] // 2, i.shape[1]))
-            jj = j.reshape((j.shape[0] // 2, j.shape[1]))
-        """
-
-        for b in range(batch):
-            for i in range(num_nodes[b] + 1):
-                for j in range(num_nodes[b] + 1):
-                    cat_vect = torch.cat((nodes[b, i], nodes[b, j]))
-                    p = self.edge_network(cat_vect)
-                    # Gumbel expects logits, not probs
-                    z = nn.functional.gumbel_softmax(p, hard=True)
-                    adj_mats[b, i, j] = z[0]
 
     def print_adj_heatmap(self, adj_mats):
         """Prints the mean values of each cell in the adjacency matrix
@@ -379,8 +293,14 @@ class RayObsGraph(TorchModelV2, nn.Module):
         values = torch.zeros(B, T, 1, device=flat.device)
         # Deconstruct batch into batch and time dimensions: [B, T, feats]
         flat = torch.reshape(flat, [-1, T] + list(flat.shape[1:]))
-        # We only care about latest obs, but we get seq_lens[i] worth of obs
-        num_nodes, nodes, adj_mats = state
+        if len(state) == 3:
+            # First run or edge_selectors do not use state
+            num_nodes, nodes, adj_mats = state
+            edge_selector_states = None
+        else:
+            # edge selectors need to propagate state
+            num_nodes, nodes, adj_mats, edge_selector_states = state
+
         num_nodes = num_nodes.long()
         adj_mats = adj_mats.long()
 
@@ -408,6 +328,12 @@ class RayObsGraph(TorchModelV2, nn.Module):
                     "(You can ignore this for the first backwards pass)",
                 )
                 num_nodes[graph_overflows] = 0
+
+            # Apply edge selectors `forward`
+            [
+                e(node_views, adj_views, num_nodes, edge_selector_states, B)
+                for e in self.edge_selectors
+            ]
 
             datas = []
             for b in range(B):
