@@ -313,6 +313,55 @@ class RayObsGraph(TorchModelV2, nn.Module):
             except Exception:
                 pass
 
+    def get_views(self, nodes, adj_mats, num_nodes):
+        """Returns reduced views of the nodes and adj_mats matrices
+        so we don't see any of the empty space. It is much faster to use
+        a single matrix for the entire batch than multiple small matrices.
+        Views allow fast and readable operations on this big tensor."""
+        node_views = []
+        adj_views = []
+
+        batch = nodes.shape[0]
+        for b in range(batch):
+            node_views.append(
+                nodes[b].narrow(dim=0, start=0, length=num_nodes[b].item() + 1)
+            )
+            adj_views.append(
+                adj_mats[b]
+                .narrow(dim=0, start=0, length=num_nodes[b].item() + 1)
+                .narrow(dim=1, start=0, length=num_nodes[b].item() + 1)
+            )
+        return node_views, adj_views
+
+    def gnn_forward(self, batch):
+        """Given a PyG batch, push it through
+        the GNN and return the output at the
+        just-added node"""
+        out = batch.x
+        for name, layer in self.gnn.items():
+            if "act" in name:
+                out = layer(out)
+            elif "graph" in name:
+                out = layer(out, batch.edge_index)
+            else:
+                raise NotImplementedError(
+                    'Graph config only recognizes "graph" and "act" layers'
+                )
+        assert self.cfg["gcn_output_size"] == out.shape[-1]
+        # torch_geometric will have collapsed dims[0,1] into dim[0]
+        # reconstruct but use gcn output feature size
+        assert batch.num_nodes % batch.num_graphs == 0
+        out = out.reshape(
+            batch.num_graphs,
+            batch.num_nodes // batch.num_graphs,
+            self.cfg["gcn_output_size"],
+        )
+        # We only care about observation at our newly added node
+        # target_node_out = torch.stack(
+        #    [out[i, tgt_n, :].squeeze(0) for i, tgt_n in enumerate(num_nodes)]
+        # )
+        return out
+
     def forward(
         self,
         input_dict: Dict[str, TensorType],
@@ -321,25 +370,16 @@ class RayObsGraph(TorchModelV2, nn.Module):
     ) -> Tuple[TensorType, List[TensorType]]:
 
         flat = input_dict["obs_flat"]
-        # From attention net code
-        # likely where the bug in gtrxl is for our case too
         # Batch and Time
         # Forward expects outputs as [B, T, logits]
         B = len(seq_lens)
         T = flat.shape[0] // B
-
-        # if T > 1:
-        #    import pdb; pdb.set_trace()
-
-        # print(T, flat.device)
 
         logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
         values = torch.zeros(B, T, 1, device=flat.device)
         # Deconstruct batch into batch and time dimensions: [B, T, feats]
         flat = torch.reshape(flat, [-1, T] + list(flat.shape[1:]))
         # We only care about latest obs, but we get seq_lens[i] worth of obs
-        # TODO: IMPORTANT - ensure we want idx 0 and not -1
-        # It looks like input is ordered [t-n, t-n+1, ... t]
         num_nodes, nodes, adj_mats = state
         num_nodes = num_nodes.long()
         adj_mats = adj_mats.long()
@@ -348,6 +388,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # this is because instead of propagating state,
         # we are simply passed `obs` with a time dimension
         for t in range(T):
+            # Views will be [(num_nodes, features)...], [(num_nodes, num_nodes)...]
+            # each of length batch
+            node_views, adj_views = self.get_views(nodes, adj_mats, num_nodes)
             # Flat will be shape [B, feat] for inference and
             # shape [B, T, feat] for training
             # For training, we want loss across the entire sequence
@@ -366,68 +409,20 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 )
                 num_nodes[graph_overflows] = 0
 
-            # Add new nodes to graph at the next free index (num_nodes)
-            batch_idxs = torch.arange(num_nodes.shape[0])
-            curr_node_idxs = num_nodes.squeeze()
-            nodes[batch_idxs, curr_node_idxs] = flat[batch_idxs]
+            datas = []
+            for b in range(B):
+                # Add new nodes to graph at the next free index (num_nodes)
+                node_views[b][-1] = flat[b]
+                edge_list = torch_geometric.utils.dense_to_sparse(adj_views[b])[0]
+                datas.append(Data(x=node_views[b], edge_index=edge_list))
 
-            # Add self edge
-            # TODO: Verify we don't actually need this with self_edge=True in pyg
-            # self.add_self_edge(adj_mats, num_nodes)
-
-            # Add other edges based on config
-            if "temporal" in self.cfg["edge_selectors"]:
-                # Add edge to obs at t-1
-                self.add_backedge(adj_mats, num_nodes)
-            if "pose" in self.cfg["edge_selectors"]:
-                pass
-            if "dense" in self.cfg["edge_selectors"]:
-                # Add every possible edge to graph
-                self.densify_graph(adj_mats, num_nodes)
-            if "knn-mse" in self.cfg["edge_selectors"]:
-                # Neighborhoods based on mse distance
-                self.add_knn_edges(adj_mats, nodes, num_nodes, F.mse_loss)
-            if "knn-cos" in self.cfg["edge_selectors"]:
-                # Neigborhoods based on cosine similarity
-                self.add_knn_edges(adj_mats, nodes, num_nodes, F.cosine_similarity)
-            if "learned" in self.cfg["edge_selectors"]:
-                self.add_learned_edges(nodes, adj_mats, num_nodes)
-
-            # GCN uses sparse edgelist
-            # For batch mode, torch_geometric expects a specific format
-            # see https://pytorch-geometric.readthedocs.io/en/latest/notes/introduction.html#mini-batches
-            edge_lists = [
-                torch_geometric.utils.dense_to_sparse(adj_mat)[0]
-                for adj_mat in adj_mats
-            ]
-            in_batch = Batch.from_data_list(
-                [
-                    Data(x=nodes[i], edge_index=edge_lists[i])
-                    for i in range(len(edge_lists))
-                ]
-            )
-            # Push graph through GNN
-            out = in_batch.x
-            for name, layer in self.gnn.items():
-                if "act" in name:
-                    out = layer(out)
-                elif "graph" in name:
-                    out = layer(out, in_batch.edge_index)
-                else:
-                    raise NotImplementedError(
-                        'Graph config only recognizes "graph" and "act" layers'
-                    )
-
-            # torch_geometric will have collapsed dims[0,1] into dim[0]
-            # reconstruct but use gcn output feature size
-            # After reshape, out is [Batch, node, gcn_outsize (aka feat)]
-            out = torch.reshape(out, (*nodes.shape[:-1], self.cfg["gcn_output_size"]))
-            # We only care about observation at our newly added node
-            # Index each batch by num_nodes (the node we just inserted) to get
-            # the target node for each batch
-            target_node_out = torch.stack(
-                [out[i, tgt_n, :].squeeze(0) for i, tgt_n in enumerate(num_nodes)]
-            )
+            # Do forwards in batch mode to be more efficient
+            batch_input = Batch.from_data_list(datas)
+            gnn_out = self.gnn_forward(batch_input)
+            # Extract output at the node we are interested in
+            # Rather than use view, use num_nodes so if we run out of graph space
+            # we look at the newly placed zeroth node instead of the old nth node
+            node_feats = torch.cat([gnn_out[b, num_nodes[b]] for b in range(B)])
 
             # Update graph with new node
             num_nodes = num_nodes + 1
@@ -435,21 +430,12 @@ class RayObsGraph(TorchModelV2, nn.Module):
             # Outputs
             # vtrace drops the last obs [-1] for vtrace
             # otherwise it should be in order [t0, t1, ... tn]
-            logits[:, t] = self.logit_branch(target_node_out)
-            values[:, t] = self.value_branch(target_node_out)
+            logits[:, t] = self.logit_branch(node_feats)
+            values[:, t] = self.value_branch(node_feats)
 
         logits = logits.reshape((B * T, self.num_outputs))
         values = values.reshape((B * T, 1))
 
         self.cur_val = values.squeeze(1)
-
-        # print(T)
-        # if T > 1:
-        #    self.print_adj_heatmap(adj_mats)
-
-        # import GPUtil
-        # print('iter', self.fwd_iters)
-        # GPUtil.showUtilization()
-
         self.fwd_iters += 1
         return logits, state
