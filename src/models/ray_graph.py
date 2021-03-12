@@ -89,9 +89,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.build_network(self.cfg)
         print("GNN network is:", self.gnn)
 
-        assert all(
-            [e in self.EDGE_SELECTORS for e in self.cfg["edge_selectors"]]
-        ), "Invalid edge selectors"
+        for e in self.cfg["edge_selectors"]:
+            assert e in self.EDGE_SELECTORS, f"Invalid edge selector: {e}"
+
         assert (
             model_config["max_seq_len"] <= self.cfg["graph_size"]
         ), "max_seq_len cannot be more than graph size"
@@ -167,7 +167,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         batch = adj_mats.shape[0]
 
         batch_idxs = torch.arange(batch)
-        # batch_idxs = num_nodes.squeeze()
         curr_node_idxs = num_nodes[batch_idxs].squeeze()
         # Zeroth node cant have backedge
         mask = curr_node_idxs > 1
@@ -214,23 +213,30 @@ class RayObsGraph(TorchModelV2, nn.Module):
         pass
 
     def build_edge_network(self):
-        """A(i,j) = Ber[sigma phi(cat(i, j)), e]"""
+        """Builds a network to predict edges.
+        Input: (i || j)
+        Output: [p(edge), 1-p(edge)] in R^2
+        """
         self.edge_network = nn.Sequential(
             nn.Linear(2 * self.obs_dim, self.obs_dim),
             nn.ReLU(),
             # Output is [yes_edge, no_edge]
             nn.Linear(self.obs_dim, 2),
+            # We want output to be -inf, inf so do not
+            # use ReLU as final activation
             # nn.Sigmoid()
-            nn.ReLU(),
         )
 
     def add_learned_edges(self, nodes, adj_mats, num_nodes):
-        """A(i,j) = Ber[sigma phi(i || j), e]"""
-        # a(b,i,j) = sigma(phi(n(b,i) || n(b,j))) for i, j < num_nodes
+        """A(i,j) = Ber[phi(i || j), e]"""
+        # a(b,i,j) = gumbel_softmax(phi(n(b,i) || n(b,j))) for i, j < num_nodes
         # Shape [batch, 1]
         batch = nodes.shape[0]
+        # TODO: Do we want to learn the self edge?
 
         """
+        # (i || j) mat
+        cat_mat = torch.zeros((batch, *nodes.shape[:-1], 2 *  nodes.shape[-1]))
         for b in range(batch):
             # View of the submatrices
             # our matrix has a fixed shape, but we are only concerned up to
@@ -240,7 +246,14 @@ class RayObsGraph(TorchModelV2, nn.Module):
             nodeview = nodes[b].narrow(dim=0, start=0, length=num_nodes[b]+1)
             # shape [num_nodes, num_nodes]
             adjview = adj_mats[b].narrow(dim=0, start=0, length=num_nodes[b]+1).narrow(dim=1, start=0, length=num_nodes[b]+1)
-            for i in range(nodeview.shape[0]):
+            # ((i0, i0, ... i1, i1, ... ... in, in), (j0, j0, ... ... jn, jn)
+            cat_vects = tuple(zip(*tuple(itertools.permutations(nodeview, 2))))
+            # i, j nodes
+            ii = torch.stack(cat_vects[0])
+            jj = torch.stack(cat_vects[1])
+            # Reshape to row == (i || j)
+            ii = i.reshape((i.shape[0] // 2, i.shape[1]))
+            jj = j.reshape((j.shape[0] // 2, j.shape[1]))
         """
 
         for b in range(batch):
@@ -251,6 +264,14 @@ class RayObsGraph(TorchModelV2, nn.Module):
                     # Gumbel expects logits, not probs
                     z = nn.functional.gumbel_softmax(p, hard=True)
                     adj_mats[b, i, j] = z[0]
+
+    def print_adj_heatmap(self, adj_mats):
+        """Prints the mean values of each cell in the adjacency matrix
+        for the batch. Call once at the end of the batch train step."""
+        mean = torch.mean(adj_mats.float(), dim=0)
+        torch.set_printoptions(profile="full")
+        print(mean)
+        torch.set_printoptions(profile="default")
 
     def make_pose_relative(self, nodes, num_nodes):
         """The GPS observation is in global coordinates. To ensure locality,
@@ -307,6 +328,11 @@ class RayObsGraph(TorchModelV2, nn.Module):
         B = len(seq_lens)
         T = flat.shape[0] // B
 
+        # if T > 1:
+        #    import pdb; pdb.set_trace()
+
+        # print(T, flat.device)
+
         logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
         values = torch.zeros(B, T, 1, device=flat.device)
         # Deconstruct batch into batch and time dimensions: [B, T, feats]
@@ -346,10 +372,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
             nodes[batch_idxs, curr_node_idxs] = flat[batch_idxs]
 
             # Add self edge
-            # TODO: Is this working as expected?
-            # Probably not
-            # adj_mats[:, num_nodes, num_nodes] = 1
-            self.add_self_edge(adj_mats, num_nodes)
+            # TODO: Verify we don't actually need this with self_edge=True in pyg
+            # self.add_self_edge(adj_mats, num_nodes)
 
             # Add other edges based on config
             if "temporal" in self.cfg["edge_selectors"]:
@@ -418,6 +442,10 @@ class RayObsGraph(TorchModelV2, nn.Module):
         values = values.reshape((B * T, 1))
 
         self.cur_val = values.squeeze(1)
+
+        # print(T)
+        # if T > 1:
+        #    self.print_adj_heatmap(adj_mats)
 
         # import GPUtil
         # print('iter', self.fwd_iters)
