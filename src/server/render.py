@@ -97,7 +97,11 @@ def concat_h_from_paths(img_paths: List[str]) -> np.ndarray:
     return dst
 
 
+last_exc = time.time()
+
+
 def gen() -> Generator[bytes, None, None]:
+    global last_exc
     while True:
         try:
             if os.path.isdir(RENDER_ROOT):
@@ -119,8 +123,11 @@ def gen() -> Generator[bytes, None, None]:
                     b"Content-Type: image/jpeg\r\n\r\n" + buf.getvalue() + b"\r\n"
                 )
         except Exception as e:
-            print("Render server failed to serve image")
-            print(e)
+            # Do not spam console and pin CPU
+            if last_exc - time.time() > 1:
+                print("Render server failed to serve image")
+                print(e)
+                last_exc = time.time()
 
 
 @app.route("/video_feed")
