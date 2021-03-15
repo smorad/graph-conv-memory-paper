@@ -45,7 +45,7 @@ class RecallEnv(gym.Env):
             high=np.finfo(np.float32).max,
             dtype=np.float32,
         )
-        timestep = gym.spaces.Discrete(self.max_items + self.max_queries + 1)
+        timestep = gym.spaces.Discrete(self.max_items + self.max_queries + 2)
         self.observation_space = gym.spaces.Dict(
             {"is_recall": is_recall, "item": item, "timestep": timestep}
         )
@@ -57,7 +57,8 @@ class RecallEnv(gym.Env):
         return [0, 1]
 
     def get_done(self, obs):
-        if self.curr_t == self.max_items + self.max_queries:
+        # +1 is for the weird mode between train/test
+        if self.curr_t == self.max_items + self.max_queries + 1:
             return True
 
         return False
