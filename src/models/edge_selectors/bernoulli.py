@@ -25,58 +25,50 @@ class BernoulliEdge(torch.nn.Module):
             # use ReLU as final activation
         )
 
-    def compute_prob_adj(self):
-        """Compute a probabilistic adjacency matrix,
-        where each A(i,j) = phi(i,j). Caching nn results
-        in this way is much faster. We can randomly sample A(i,j)
-        from bernoulli later"""
-        pass
+    def compute_logits(self, node_view, adj_view, num_node, state):
+        """Compute logits using a forward pass of the edge_network for a single graph.
+        Logits will be of shape [nodes, 2], where the last dim
+        corresponds to logits: [yes_edge, no_edge].
 
-    def get_initial_state(self, adj_mats, B):
-        pass
+        The computation occurs between the currently added node and
+        all previously added nodes. Results are stored in state."""
+        left_half_mat = node_view[num_node].repeat(node_view.shape[0], 1)
+        right_half_mat = node_view
+        # Shape [nodes, 2*node_feats]
+        network_in = torch.cat((left_half_mat, right_half_mat), dim=1)
+        # Batch inference, returns shape [nodes, 2]
+        logits = self.edge_network(network_in)
+        # Undirected edges, cache edge network forward passes
+        state[: num_node + 1, num_node] = logits
+        state[num_node, : num_node + 1] = logits
+
+    def get_initial_state(self, states, adj_mats, B):
+        for mat in adj_mats:
+            states.append(
+                torch.zeros((*mat.shape, 2), dtype=torch.float, device=mat.device)
+            )
+        self.edge_network = self.edge_network.to(adj_mats[0].device)
+
+        return states
 
     def forward(self, nodes, adj_mats, num_nodes, state, B):
         """A(i,j) = Ber[phi(i || j), e]"""
         # a(b,i,j) = gumbel_softmax(phi(n(b,i) || n(b,j))) for i, j < num_nodes
-        if not state:
-            state = self.get_initial_state(adj_mats, B)
+        # First run
+        if len(state) == 0:
+            state = self.get_initial_state(state, adj_mats, B)
 
+        node_views, adj_views = self.parent.get_views(nodes, adj_mats, num_nodes)
+
+        # Compute logits for all nodes to curr node
+        # and place results in state adj matrix
         for b in range(B):
-            ii, jj = zip(*itertools.combinations(adj_mats[b].shape, 2))
-            # TODO: Need to cache adj computation
-            import pdb
+            # Concatenate left half of stacked current_node
+            # with right half of all current nodes
+            self.compute_logits(
+                node_views[b], adj_views[b], num_nodes[b].squeeze(), state[b]
+            )
 
-            pdb.set_trace()
-
-        """
-        # (i || j) mat
-        cat_mat = torch.zeros((batch, *nodes.shape[:-1], 2 *  nodes.shape[-1]))
-        for b in range(batch):
-            # View of the submatrices
-            # our matrix has a fixed shape, but we are only concerned up to
-            # the num_nodes'th element
-            #
-            # shape [num_nodes, feat]
-            nodeview = nodes[b].narrow(dim=0, start=0, length=num_nodes[b]+1)
-            # shape [num_nodes, num_nodes]
-            adjview = adj_mats[b].narrow(dim=0, start=0, length=num_nodes[b]+1).narrow(dim=1, start=0, length=num_nodes[b]+1)
-            # ((i0, i0, ... i1, i1, ... ... in, in), (j0, j0, ... ... jn, jn)
-            cat_vects = tuple(zip(*tuple(itertools.permutations(nodeview, 2))))
-            # i, j nodes
-            ii = torch.stack(cat_vects[0])
-            jj = torch.stack(cat_vects[1])
-            # Reshape to row == (i || j)
-            ii = i.reshape((i.shape[0] // 2, i.shape[1]))
-            jj = j.reshape((j.shape[0] // 2, j.shape[1]))
-        """
-
-        """
-        for b in range(batch):
-            for i in range(num_nodes[b] + 1):
-                for j in range(num_nodes[b] + 1):
-                    cat_vect = torch.cat((nodes[b, i], nodes[b, j]))
-                    p = self.edge_network(cat_vect)
-                    # Gumbel expects logits, not probs
-                    z = nn.functional.gumbel_softmax(p, hard=True)
-                    adj_mats[b, i, j] = z[0]
-        """
+            # Now resample the entire logits adj mat using gumbel max trick
+            probs = torch.nn.functional.gumbel_softmax(state[b], hard=True, dim=-1)
+            adj_views[b] = probs

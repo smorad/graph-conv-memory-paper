@@ -296,7 +296,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         if len(state) == 3:
             # First run or edge_selectors do not use state
             num_nodes, nodes, adj_mats = state
-            edge_selector_states = None
+            edge_selector_states = []
         else:
             # edge selectors need to propagate state
             num_nodes, nodes, adj_mats, edge_selector_states = state
@@ -331,7 +331,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
             # Apply edge selectors `forward`
             [
-                e(node_views, adj_views, num_nodes, edge_selector_states, B)
+                e(nodes, adj_mats, num_nodes, edge_selector_states, B)
                 for e in self.edge_selectors
             ]
 
