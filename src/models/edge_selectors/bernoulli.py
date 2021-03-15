@@ -14,7 +14,7 @@ class BernoulliEdge(torch.nn.Module):
     def build_edge_network(self):
         """Builds a network to predict edges.
         Input: (i || j)
-        Output: [p(edge), 1-p(edge)] in R^2
+        Output: [1 - p(edge), p(edge)] in R^2
         """
         self.edge_network = torch.nn.Sequential(
             torch.nn.Linear(2 * self.parent.obs_dim, self.parent.obs_dim),
@@ -28,7 +28,7 @@ class BernoulliEdge(torch.nn.Module):
     def compute_logits(self, node_view, adj_view, num_node, state):
         """Compute logits using a forward pass of the edge_network for a single graph.
         Logits will be of shape [nodes, 2], where the last dim
-        corresponds to logits: [yes_edge, no_edge].
+        corresponds to logits: [no_edge, yes_edge].
 
         The computation occurs between the currently added node and
         all previously added nodes. Results are stored in state."""
@@ -70,5 +70,10 @@ class BernoulliEdge(torch.nn.Module):
             )
 
             # Now resample the entire logits adj mat using gumbel max trick
-            probs = torch.nn.functional.gumbel_softmax(state[b], hard=True, dim=-1)
-            adj_views[b] = probs
+            # TODO: This does not sample when we overwrite entries
+            probs = torch.nn.functional.gumbel_softmax(
+                state[b][: num_nodes[b] + 1, : num_nodes[b] + 1], hard=True, dim=-1
+            )
+            adj_views[b][: num_nodes[b] + 1, : num_nodes[b] + 1] = torch.argmax(
+                probs, dim=-1
+            )
