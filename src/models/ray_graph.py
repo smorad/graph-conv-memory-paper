@@ -4,7 +4,6 @@ import numpy as np
 import gym
 from torch import nn
 import torch.nn.functional as F
-from torch.distributions.bernoulli import Bernoulli
 from typing import Union, Dict, List, Tuple
 import ray
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
@@ -18,32 +17,6 @@ from ray.rllib.policy.view_requirement import ViewRequirement
 
 import torch_geometric
 from torch_geometric.data import Data, Batch
-
-from models.edge_selectors.temporal import TemporalBackedge
-
-## What I've found
-## if we disable trajectory view:
-##      we must implement get_initial_state
-##      the length of the state must remain constant (matching get_initial_state)
-##      Changing the shape of the state tensors RESETS them to get_initial_state
-##      State is retained if the shape remains constant
-##
-##      Therefore, we must preallocate the full adjacency and node matrix in get_initial_state
-##      if we would like build a graph
-##
-## With trajectory view enabled (default):
-##      State propagates if the shape remains constant
-##      View requirements shift DO NOT follow python syntax
-##      shift="-500:0" will return a shape 500 zero-padded vector
-##      with shape [B, i, space] where i is the index from 0-500
-##      note that this counts backwards (i.e. dict[:,-1,:] will be populated first)
-##
-##      With empty list in get_initial_state, state will not propagate
-
-## The solution is to use trajectory view with shift == max_timesteps
-## nodes are stored as observations in the trajectory view
-## edges must be propagated using get_initial_state and state, likely via adjacency matrix
-## because it must have a fixed size
 
 
 class RayObsGraph(TorchModelV2, nn.Module):
@@ -146,13 +119,32 @@ class RayObsGraph(TorchModelV2, nn.Module):
             initializer=torch.nn.init.xavier_uniform_,
         )
 
-    def get_initial_state(self):
-        edges = torch.zeros(
-            (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
-        )
-        nodes = torch.zeros((self.cfg["graph_size"], self.obs_dim))
+    def get_initial_state(self, sparse=False):
+        # TODO: Try using torch.sparse_coo layout
+        if sparse:
+            edges = torch.sparse_coo_tensor(
+                (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
+            )
+            nodes = torch.sparse_coo_tensor((self.cfg["graph_size"], self.obs_dim))
+        else:
+            edges = torch.zeros(
+                (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
+            )
+            nodes = torch.zeros((self.cfg["graph_size"], self.obs_dim))
+
         num_nodes = torch.tensor([0], dtype=torch.long)
-        return [num_nodes, nodes, edges]
+        state = [num_nodes, nodes, edges]
+
+        edge_selector_states = [
+            e.get_initial_state(nodes, edges)
+            for e in self.edge_selectors
+            if hasattr(e, "get_initial_state")
+        ]
+        # Edge selector states cannot be a list, must be TensorType
+        if len(edge_selector_states) != 0:
+            state += [*edge_selector_states]
+
+        return state
 
     def value_function(self):
         assert self.cur_val is not None, "must call forward() first"
@@ -191,25 +183,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         """The GPS observation is in global coordinates. To ensure locality,
         make all node poses relative to the coordinate frame
         of the current observation"""
-        """
-        sensor_keys = list(obs.keys())
-        gps_idx = sensor_keys.index('gps')
-        compass_idx = sensor_keys.index('compass')
-        # Obs will be of size [Batch, feat]
-        sensor_sizes = [v.shape[1] for v in obs.values()]
-        gps_offset = sum([sensor_sizes[i] for i in range(gps_idx)])
-        gps_dim = sensor_sizes[gps_idx]
-
-        compass_offset = sum([sensor_sizes[i] for i in range(compass_idx)])
-        compass_dim = sensor_sizes[compass_idx]
-
-        # Shape [Batch, feat]
-        # Do NOT use -= as it differs from x = x-y
-        # it is in-place and breaks torch autograd
-
-        gps[:,gps_offset : gps_offset + gps_dim + 1]
-        compass[:, compass_offset : compass_offset + compass_dim + 1]
-        """
         pass
 
     def gc_check(self):
@@ -264,17 +237,16 @@ class RayObsGraph(TorchModelV2, nn.Module):
         assert self.cfg["gcn_output_size"] == out.shape[-1]
         # torch_geometric will have collapsed dims[0,1] into dim[0]
         # reconstruct but use gcn output feature size
-        assert batch.num_nodes % batch.num_graphs == 0
-        out = out.reshape(
-            batch.num_graphs,
-            batch.num_nodes // batch.num_graphs,
-            self.cfg["gcn_output_size"],
-        )
+        # Shape is [batch, max_nodes_per_graph, feat]
+        batch_out = torch_geometric.utils.to_dense_batch(
+            batch.x, batch.to_dict()["batch"]
+        )[0]
+
         # We only care about observation at our newly added node
         # target_node_out = torch.stack(
         #    [out[i, tgt_n, :].squeeze(0) for i, tgt_n in enumerate(num_nodes)]
         # )
-        return out
+        return batch_out
 
     def forward(
         self,
@@ -293,13 +265,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         values = torch.zeros(B, T, 1, device=flat.device)
         # Deconstruct batch into batch and time dimensions: [B, T, feats]
         flat = torch.reshape(flat, [-1, T] + list(flat.shape[1:]))
-        if len(state) == 3:
-            # First run or edge_selectors do not use state
-            num_nodes, nodes, adj_mats = state
-            edge_selector_states = []
-        else:
-            # edge selectors need to propagate state
-            num_nodes, nodes, adj_mats, edge_selector_states = state
+        num_nodes, nodes, adj_mats, *edge_selector_states = state
 
         num_nodes = num_nodes.long()
         adj_mats = adj_mats.long()
@@ -330,16 +296,28 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 num_nodes[graph_overflows] = 0
 
             # Apply edge selectors `forward`
-            [
-                e(nodes, adj_mats, num_nodes, edge_selector_states, B)
-                for e in self.edge_selectors
-            ]
+            edge_state_idx = 0
+            for e in self.edge_selectors:
+                if hasattr(e, "get_initial_state"):
+                    e(
+                        nodes,
+                        adj_mats,
+                        num_nodes,
+                        edge_selector_states[edge_state_idx],
+                        B,
+                    )
+                    edge_state_idx += 1
+                else:
+                    e(nodes, adj_mats, num_nodes, B)
 
             datas = []
             for b in range(B):
                 # Add new nodes to graph at the next free index (num_nodes)
                 node_views[b][-1] = flat[b]
+                # TODO: IMPORTANT -- GRADIENTS CANNOT BACKPROP THROUGH DENSE2SPARSE
+                # https://github.com/rusty1s/pytorch_geometric/issues/1511
                 edge_list = torch_geometric.utils.dense_to_sparse(adj_views[b])[0]
+
                 datas.append(Data(x=node_views[b], edge_index=edge_list))
 
             # Do forwards in batch mode to be more efficient
@@ -364,4 +342,12 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         self.cur_val = values.squeeze(1)
         self.fwd_iters += 1
+
+        # For metric logging purposes
+        self.density = adj_mats.detach().float().mean().item()
+
+        state = [num_nodes, nodes, adj_mats]
+        if len(edge_selector_states) != 0:
+            state += [*edge_selector_states]
+
         return logits, state
