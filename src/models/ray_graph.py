@@ -4,7 +4,7 @@ import numpy as np
 import gym
 from torch import nn
 import torch.nn.functional as F
-from typing import Union, Dict, List, Tuple
+from typing import Union, Dict, List, Tuple, Any
 import ray
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.modelv2 import ModelV2, restore_original_dimensions
@@ -14,6 +14,8 @@ from ray.rllib.models.torch.recurrent_net import RecurrentNetwork
 from ray.rllib.utils.typing import ModelConfigDict, TensorType
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.view_requirement import ViewRequirement
+from ray.rllib.policy.rnn_sequencing import add_time_dimension
+from torchviz import make_dot
 
 import torch_geometric
 from torch_geometric.data import Data, Batch
@@ -23,6 +25,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
     DEFAULT_CONFIG = {
         # Maximum number of nodes in a graph
         "graph_size": 32,
+        # Maximum hops per node, 0 means num_layers
+        "subgraph_size": 0,
         # Size of latent vector coming out of GNN
         # before being fed to logits/vf layer(s)
         "gcn_output_size": 256,
@@ -33,12 +37,15 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # If using GAT, number of attention heads per layer
         "gcn_num_attn_heads": 1,
         # Graph convolution layer class
-        "gcn_conv_type": torch_geometric.nn.GCNConv,
+        "gcn_conv_type": torch_geometric.nn.DenseGCNConv,
         # Activation function for GNN layers
         "gcn_act_type": torch.nn.ReLU,
+        "use_batch_norm": False,
         # Methodologies for building edges
         # can be [temporal, dense, knn-mse, knn-cos]
         "edge_selectors": [],
+        # For debug visualization
+        "export_gradients": False,
     }
 
     def __init__(
@@ -70,6 +77,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         self.cur_val = None
         self.fwd_iters = 0
+        self.grad_dots: Dict[str, Any] = {}
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
@@ -101,6 +109,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
             else:
                 layers[f"graph_{layer}"] = cfg["gcn_conv_type"](in_size, out_size)
 
+            if cfg["use_batch_norm"] and layer < cfg["gcn_num_layers"] - 1:
+                layers[f"batchnorm_{layer}"] = torch.nn.BatchNorm1d(out_size)
+
             layers[f"act_{layer}"] = cfg["gcn_act_type"]()
 
         self.gnn = nn.ModuleDict(layers)
@@ -121,6 +132,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
     def get_initial_state(self, sparse=False):
         # TODO: Try using torch.sparse_coo layout
+        # it's likely the conversion to numpy in rllib
+        # breaks this
         if sparse:
             edges = torch.sparse_coo_tensor(
                 (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
@@ -185,21 +198,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         of the current observation"""
         pass
 
-    def gc_check(self):
-        import torch
-        import gc
-
-        print("ITER")
-        for obj in gc.get_objects():
-            try:
-                if torch.is_tensor(obj) or (
-                    hasattr(obj, "data") and torch.is_tensor(obj.data)
-                ):
-                    if type(obj) != torch.nn.parameter.Parameter:
-                        print(type(obj), obj.size())
-            except Exception:
-                pass
-
     def get_views(self, nodes, adj_mats, num_nodes):
         """Returns reduced views of the nodes and adj_mats matrices
         so we don't see any of the empty space. It is much faster to use
@@ -220,33 +218,48 @@ class RayObsGraph(TorchModelV2, nn.Module):
             )
         return node_views, adj_views
 
-    def gnn_forward(self, batch):
+    def add_grad_dot(self, tensor, name):
+        if self.cfg["export_gradients"] and self.training:
+            self.grad_dots[name] = make_dot(
+                tensor, params=dict(list(self.named_parameters()))
+            )
+
+    def export_dots(self):
+        if self.cfg["export_gradients"] and self.training:
+            for k, v in self.grad_dots.items():
+                v.render(f"/tmp/{k}")
+            raise Exception("Gradient dots written to /tmp/, stopping...")
+
+    def gnn_forward(self, nodes, adj):
         """Given a PyG batch, push it through
         the GNN and return the output at the
         just-added node"""
-        out = batch.x
+        out = nodes
         for name, layer in self.gnn.items():
             if "act" in name:
                 out = layer(out)
             elif "graph" in name:
-                out = layer(out, batch.edge_index)
+                # Edge weights are required to allow gradient backprop
+                # thru dense->sparse conversion
+                out = layer(out, adj)
+            elif "batchnorm" in name:
+                out = layer(out)
             else:
                 raise NotImplementedError(
                     'Graph config only recognizes "graph" and "act" layers'
                 )
+        self.add_grad_dot(out, "after_gnn_conv")
         assert self.cfg["gcn_output_size"] == out.shape[-1]
         # torch_geometric will have collapsed dims[0,1] into dim[0]
         # reconstruct but use gcn output feature size
         # Shape is [batch, max_nodes_per_graph, feat]
-        batch_out = torch_geometric.utils.to_dense_batch(
-            batch.x, batch.to_dict()["batch"]
-        )[0]
+        # TODO: Does this break backprop?
+        # Yes, it does
 
-        # We only care about observation at our newly added node
-        # target_node_out = torch.stack(
-        #    [out[i, tgt_n, :].squeeze(0) for i, tgt_n in enumerate(num_nodes)]
-        # )
-        return batch_out
+        return out
+
+    def to_sparse(self):
+        pass
 
     def forward(
         self,
@@ -310,23 +323,32 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 else:
                     e(nodes, adj_mats, num_nodes, B)
 
+            """
             datas = []
             for b in range(B):
                 # Add new nodes to graph at the next free index (num_nodes)
                 node_views[b][-1] = flat[b]
-                # TODO: IMPORTANT -- GRADIENTS CANNOT BACKPROP THROUGH DENSE2SPARSE
+                # IMPORTANT -- GRADIENTS CANNOT BACKPROP THROUGH DENSE2SPARSE
                 # https://github.com/rusty1s/pytorch_geometric/issues/1511
-                edge_list = torch_geometric.utils.dense_to_sparse(adj_views[b])[0]
+                #edge_list = torch_geometric.utils.dense_to_sparse(adj_views[b])[0]
+                edge_index = (adj_views[b] > 0).nonzero().t()
+                row, col = edge_index
+                edge_weights = adj_views[b][row, col].float()
 
-                datas.append(Data(x=node_views[b], edge_index=edge_list))
-
+                datas.append(
+                    Data(x=node_views[b], adj=edge_index, edge_weight=edge_weights)
+                )
+            """
             # Do forwards in batch mode to be more efficient
-            batch_input = Batch.from_data_list(datas)
-            gnn_out = self.gnn_forward(batch_input)
+            # batch_input = Batch.from_data_list(datas)
+            gnn_out = self.gnn_forward(nodes, adj_mats)
+            self.add_grad_dot(gnn_out, "after_gnn_forward")
             # Extract output at the node we are interested in
             # Rather than use view, use num_nodes so if we run out of graph space
             # we look at the newly placed zeroth node instead of the old nth node
             node_feats = torch.cat([gnn_out[b, num_nodes[b]] for b in range(B)])
+            self.add_grad_dot(node_feats, "after_feat_extraction")
+            # node_feats = torch.arange(B * self.cfg['gcn_output_size'])
 
             # Update graph with new node
             num_nodes = num_nodes + 1
@@ -334,10 +356,11 @@ class RayObsGraph(TorchModelV2, nn.Module):
             # Outputs
             # vtrace drops the last obs [-1] for vtrace
             # otherwise it should be in order [t0, t1, ... tn]
-            logits[:, t] = self.logit_branch(node_feats)
-            values[:, t] = self.value_branch(node_feats)
+            logits[:, -1] = self.logit_branch(node_feats)
+            values[:, -1] = self.value_branch(node_feats)
 
         logits = logits.reshape((B * T, self.num_outputs))
+        self.add_grad_dot(logits, "final_logits")
         values = values.reshape((B * T, 1))
 
         self.cur_val = values.squeeze(1)
@@ -350,4 +373,10 @@ class RayObsGraph(TorchModelV2, nn.Module):
         if len(edge_selector_states) != 0:
             state += [*edge_selector_states]
 
+        self.export_dots()
         return logits, state
+
+        """
+        ddot = make_dot(logits, params=dict(list(self.named_parameters())))
+        ddot.render(filename='/tmp/step_0')
+        """
