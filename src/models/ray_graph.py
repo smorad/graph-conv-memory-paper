@@ -220,15 +220,15 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
     def add_grad_dot(self, tensor, name):
         if self.cfg["export_gradients"] and self.training:
-            self.grad_dots[name] = make_dot(
-                tensor, params=dict(list(self.named_parameters()))
+            self.grad_dots[f"{name}_iter_{self.fwd_iters}"] = make_dot(
+                tensor.clone(), params=dict(list(self.named_parameters()))
             )
 
     def export_dots(self):
         if self.cfg["export_gradients"] and self.training:
             for k, v in self.grad_dots.items():
                 v.render(f"/tmp/{k}")
-            raise Exception("Gradient dots written to /tmp/, stopping...")
+            self.grad_dots.clear()
 
     def gnn_forward(self, nodes, adj):
         """Given a PyG batch, push it through
@@ -250,11 +250,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 )
         self.add_grad_dot(out, "after_gnn_conv")
         assert self.cfg["gcn_output_size"] == out.shape[-1]
-        # torch_geometric will have collapsed dims[0,1] into dim[0]
-        # reconstruct but use gcn output feature size
-        # Shape is [batch, max_nodes_per_graph, feat]
-        # TODO: Does this break backprop?
-        # Yes, it does
 
         return out
 
@@ -323,32 +318,18 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 else:
                     e(nodes, adj_mats, num_nodes, B)
 
-            """
-            datas = []
-            for b in range(B):
-                # Add new nodes to graph at the next free index (num_nodes)
-                node_views[b][-1] = flat[b]
-                # IMPORTANT -- GRADIENTS CANNOT BACKPROP THROUGH DENSE2SPARSE
-                # https://github.com/rusty1s/pytorch_geometric/issues/1511
-                #edge_list = torch_geometric.utils.dense_to_sparse(adj_views[b])[0]
-                edge_index = (adj_views[b] > 0).nonzero().t()
-                row, col = edge_index
-                edge_weights = adj_views[b][row, col].float()
-
-                datas.append(
-                    Data(x=node_views[b], adj=edge_index, edge_weight=edge_weights)
-                )
-            """
             # Do forwards in batch mode to be more efficient
-            # batch_input = Batch.from_data_list(datas)
             gnn_out = self.gnn_forward(nodes, adj_mats)
             self.add_grad_dot(gnn_out, "after_gnn_forward")
             # Extract output at the node we are interested in
             # Rather than use view, use num_nodes so if we run out of graph space
             # we look at the newly placed zeroth node instead of the old nth node
-            node_feats = torch.cat([gnn_out[b, num_nodes[b]] for b in range(B)])
+            # target_idxs = torch.stack((torch.arange(B, device=flat.device), num_nodes.squeeze()))
+            # node_feats = torch.cat([gnn_out[b, num_nodes[b]] for b in range(B)])
+            node_feats = gnn_out[
+                torch.arange(B, device=flat.device), num_nodes.squeeze()
+            ]
             self.add_grad_dot(node_feats, "after_feat_extraction")
-            # node_feats = torch.arange(B * self.cfg['gcn_output_size'])
 
             # Update graph with new node
             num_nodes = num_nodes + 1
@@ -375,8 +356,3 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         self.export_dots()
         return logits, state
-
-        """
-        ddot = make_dot(logits, params=dict(list(self.named_parameters())))
-        ddot.render(filename='/tmp/step_0')
-        """
