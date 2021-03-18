@@ -25,8 +25,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
     DEFAULT_CONFIG = {
         # Maximum number of nodes in a graph
         "graph_size": 32,
-        # Maximum hops per node, 0 means num_layers
-        "subgraph_size": 0,
+        # Maximum GCN forward passes per node, results in
+        # receptive field of gcn_num_layers * gcn_num_passes
+        "gcn_num_passes": 1,
         # Size of latent vector coming out of GNN
         # before being fed to logits/vf layer(s)
         "gcn_output_size": 256,
@@ -235,19 +236,20 @@ class RayObsGraph(TorchModelV2, nn.Module):
         the GNN and return the output at the
         just-added node"""
         out = nodes
-        for name, layer in self.gnn.items():
-            if "act" in name:
-                out = layer(out)
-            elif "graph" in name:
-                # Edge weights are required to allow gradient backprop
-                # thru dense->sparse conversion
-                out = layer(out, adj)
-            elif "batchnorm" in name:
-                out = layer(out)
-            else:
-                raise NotImplementedError(
-                    'Graph config only recognizes "graph" and "act" layers'
-                )
+        for fwd_pass in range(self.cfg["gcn_num_passes"]):
+            for name, layer in self.gnn.items():
+                if "act" in name:
+                    out = layer(out)
+                elif "graph" in name:
+                    # Edge weights are required to allow gradient backprop
+                    # thru dense->sparse conversion
+                    out = layer(out, adj)
+                elif "batchnorm" in name:
+                    out = layer(out)
+                else:
+                    raise NotImplementedError(
+                        'Graph config only recognizes "graph" and "act" layers'
+                    )
         self.add_grad_dot(out, "after_gnn_conv")
         assert self.cfg["gcn_output_size"] == out.shape[-1]
 
