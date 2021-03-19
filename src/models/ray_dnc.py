@@ -53,14 +53,14 @@ class DNCMemory(TorchModelV2, nn.Module):
         self.fwd_iters = 0
 
         self.logit_branch = SlimFC(
-            in_size=self.cfg["cell_size"],
+            in_size=self.obs_dim,  # self.cfg["cell_size"],
             out_size=self.num_outputs,
             activation_fn=None,
             initializer=torch.nn.init.xavier_uniform_,
         )
 
         self.value_branch = SlimFC(
-            in_size=self.cfg["cell_size"],
+            in_size=self.obs_dim,  # self.cfg["cell_size"],
             out_size=1,
             activation_fn=None,
             initializer=torch.nn.init.xavier_uniform_,
