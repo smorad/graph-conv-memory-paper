@@ -33,7 +33,7 @@ class GNN(torch.nn.Module):
         hiddens = []
         for i in range(num_layers):
             hiddens += self.hidden_block(hidden_size, activation, conv_type, attn_heads)
-        final = [conv_type(hidden_size, output_size), activation()]
+        final = [conv_type(hidden_size, output_size)]
 
         self.layers = torch.nn.ModuleList([*first, *hiddens, *final])
         self.conv_type = conv_type
@@ -120,12 +120,12 @@ class DenseGAM(torch.nn.Module):
                 number_of_nodes_in_graph: [B]
             )
         """
-        nodes, adj, weight, num_nodes = hidden
+        nodes, adj, weights, num_nodes = hidden
 
         assert x.dtype == torch.float32
         assert nodes.dtype == torch.float
         assert adj.dtype == torch.long
-        assert weight.dtype == torch.float
+        assert weights.dtype == torch.float
         assert num_nodes.dtype == torch.long
 
         B = x.shape[0]
@@ -133,16 +133,21 @@ class DenseGAM(torch.nn.Module):
 
         # Add new nodes to the current graph
         # starting at num_nodes
+        import pdb
+
+        pdb.set_trace()
         nodes[B_idx, num_nodes[B_idx]] = x[B_idx]
 
         # E.g. add self edges and normal weights
-        adj[B_idx, num_nodes[B_idx]] = 1
-        weights[B_idx, num_nodes[B_idx]] = 1
+        for e in self.edge_selectors:
+            adj, weights = e.forward(nodes, adj, weights, num_nodes)
+        # adj[B_idx, num_nodes[B_idx]] = 1
+        # weights[B_idx, num_nodes[B_idx]] = 1
 
         # Thru network
         batch = Batch(x=nodes, adj=adj, edge_weights=weights)
         node_feats = self.gnn(batch)
-        mx = node_feats[B_idx, num_nodes]
+        mx = node_feats[B_idx, num_nodes[B_idx].squeeze()]
 
         num_nodes = num_nodes + 1
 
@@ -192,7 +197,7 @@ if __name__ == "__main__":
         loss = torch.tensor(0)
         for t in range(time):
             hidden = (nodes, adj, weights, num_nodes)
-            obs, hidden = s.forward(obs, hidden)
+            obs, hidden = s(obs, hidden)
             loss = loss + obs.mean() ** 2
 
         if i % 10 == 0:

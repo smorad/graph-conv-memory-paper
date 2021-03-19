@@ -7,7 +7,12 @@ import torch.nn.functional as F
 from typing import Union, Dict, List, Tuple, Any
 import ray
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
-from ray.rllib.models.modelv2 import ModelV2, restore_original_dimensions
+from ray.rllib.models.modelv2 import (
+    ModelV2,
+    restore_original_dimensions,
+    flatten,
+    _unpack_obs,
+)
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork as TorchFC
 from ray.rllib.models.torch.misc import SlimFC
 from ray.rllib.models.torch.recurrent_net import RecurrentNetwork
@@ -19,6 +24,7 @@ from torchviz import make_dot
 
 import torch_geometric
 from torch_geometric.data import Data, Batch
+from models.gam import GNN, DenseGAM
 
 
 class RayObsGraph(TorchModelV2, nn.Module):
@@ -58,19 +64,21 @@ class RayObsGraph(TorchModelV2, nn.Module):
         name: str,
         **custom_model_kwargs,
     ):
-        nn.Module.__init__(self)
-        super(RayObsGraph, self).__init__(
-            obs_space, action_space, num_outputs, model_config, name
+        TorchModelV2.__init__(
+            self, obs_space, action_space, num_outputs, model_config, name
         )
+        nn.Module.__init__(self)
+        # super(RayObsGraph, self).__init__(
+        #    obs_space, action_space, num_outputs, model_config, name
+        # )
         self.num_outputs = num_outputs
         self.obs_dim = gym.spaces.utils.flatdim(obs_space)
         self.act_dim = gym.spaces.utils.flatdim(action_space)
 
         self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
-        self.build_network(self.cfg)
-        print("GNN network is:", self.gnn)
-
         self.edge_selectors = [e(self) for e in self.cfg["edge_selectors"]]
+        self.build_network(self.cfg)
+        print("Full network is:", self)
 
         assert (
             model_config["max_seq_len"] <= self.cfg["graph_size"]
@@ -82,40 +90,16 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
-        layer_sizes = (
-            np.ones((cfg["gcn_num_layers"] + 1,), dtype=np.int32)
-            * cfg["gcn_hidden_size"]
+        gnn = GNN(
+            input_size=self.obs_dim,
+            output_size=cfg["gcn_output_size"],
+            graph_size=cfg["graph_size"],
+            hidden_size=cfg["gcn_hidden_size"],
+            num_layers=cfg["gcn_num_layers"],
+            conv_type=cfg["gcn_conv_type"],
+            activation=cfg["gcn_act_type"],
         )
-        num_heads = (
-            np.ones((cfg["gcn_num_layers"],), dtype=np.int32)
-            * cfg["gcn_num_attn_heads"]
-        )
-        # These must be exact
-        layer_sizes[0] = self.obs_dim
-        layer_sizes[-1] = cfg["gcn_output_size"]
-        num_heads = np.insert(num_heads, 0, 1)
-        num_heads[-1] = 1
-
-        layers = {}
-        for layer in range(cfg["gcn_num_layers"]):
-            in_size = layer_sizes[layer]
-            out_size = layer_sizes[layer + 1]
-            in_heads = num_heads[layer]
-            out_heads = num_heads[layer + 1]
-
-            if cfg["gcn_conv_type"] == torch_geometric.nn.GATConv:
-                layers[f"graph_{layer}"] = cfg["gcn_conv_type"](
-                    int(in_heads * in_size), out_size, out_heads
-                )
-            else:
-                layers[f"graph_{layer}"] = cfg["gcn_conv_type"](in_size, out_size)
-
-            if cfg["use_batch_norm"] and layer < cfg["gcn_num_layers"] - 1:
-                layers[f"batchnorm_{layer}"] = torch.nn.BatchNorm1d(out_size)
-
-            layers[f"act_{layer}"] = cfg["gcn_act_type"]()
-
-        self.gnn = nn.ModuleDict(layers)
+        self.gam = DenseGAM(gnn, edge_selectors=self.edge_selectors)
 
         self.logit_branch = SlimFC(
             in_size=cfg["gcn_output_size"],
@@ -131,46 +115,26 @@ class RayObsGraph(TorchModelV2, nn.Module):
             initializer=torch.nn.init.xavier_uniform_,
         )
 
-    def get_initial_state(self, sparse=False):
+    def get_initial_state(self):
         # TODO: Try using torch.sparse_coo layout
         # it's likely the conversion to numpy in rllib
         # breaks this
-        if sparse:
-            edges = torch.sparse_coo_tensor(
-                (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
-            )
-            nodes = torch.sparse_coo_tensor((self.cfg["graph_size"], self.obs_dim))
-        else:
-            edges = torch.zeros(
-                (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
-            )
-            nodes = torch.zeros((self.cfg["graph_size"], self.obs_dim))
+        edges = torch.zeros(
+            (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
+        )
+        nodes = torch.zeros((self.cfg["graph_size"], self.obs_dim))
+        weights = torch.zeros(
+            (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
+        )
 
-        num_nodes = torch.tensor([0], dtype=torch.long)
-        state = [num_nodes, nodes, edges]
-
-        edge_selector_states = [
-            e.get_initial_state(nodes, edges)
-            for e in self.edge_selectors
-            if hasattr(e, "get_initial_state")
-        ]
-        # Edge selector states cannot be a list, must be TensorType
-        if len(edge_selector_states) != 0:
-            state += [*edge_selector_states]
+        num_nodes = torch.zeros([1], dtype=torch.long)
+        state = [nodes, edges, weights, num_nodes]
 
         return state
 
     def value_function(self):
         assert self.cur_val is not None, "must call forward() first"
         return self.cur_val
-
-    def densify_graph(self, adj_mats, num_nodes):
-        """Connect all nodes to all other nodes. In other words,
-        the adjacency matrix is all 1's for a specific row and column
-        if the node for that column exists. Also creates a self edge."""
-        batch = adj_mats.shape[0]
-        for b in range(batch):
-            adj_mats[b, : num_nodes[b] + 1, : num_nodes[b] + 1] = 1
 
     def add_time_positional_encoding(self, nodes, num_nodes):
         """Add a 1D cosine/sine positional embedding to the current node"""
@@ -185,39 +149,56 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
             nodes[b] = nodes[b] + pe
 
-    def print_adj_heatmap(self, adj_mats):
-        """Prints the mean values of each cell in the adjacency matrix
-        for the batch. Call once at the end of the batch train step."""
-        mean = torch.mean(adj_mats.float(), dim=0)
-        torch.set_printoptions(profile="full")
-        print(mean)
-        torch.set_printoptions(profile="default")
+    def get_flat_views(self, obs, flat):
+        """Given the obs dict and flat obs, return a dict of corresponding views
+        to the same data in the flat vector."""
+        ends = {}
+        starts = {}
 
-    def make_pose_relative(self, nodes, num_nodes):
+        start = 0
+        for key, data in obs.items():
+            starts[key] = start
+            start += data.shape[-1]
+
+        end = 0
+        for key, data in obs.items():
+            end += data.shape[-1]
+            ends[key] = end
+
+        flat_views = {key: flat[:, starts[key] : ends[key]] for key in obs}
+        return flat_views
+
+    def get_flat_idxs(self, obs, flat):
+        """Given the obs dict and flat obs, return a dict of [start, end) slices
+        that index the obs keys into the flat vector"""
+        ends = {}
+        starts = {}
+
+        start = 0
+        for key, data in obs.items():
+            starts[key] = start
+            start += data.shape[-1]
+
+        end = 0
+        for key, data in obs.items():
+            end += data.shape[-1]
+            ends[key] = end
+
+        return starts, ends
+
+    def make_pose_relative(self, obs, nodes, num_nodes):
         """The GPS observation is in global coordinates. To ensure locality,
         make all node poses relative to the coordinate frame
         of the current observation"""
-        pass
-
-    def get_views(self, nodes, adj_mats, num_nodes):
-        """Returns reduced views of the nodes and adj_mats matrices
-        so we don't see any of the empty space. It is much faster to use
-        a single matrix for the entire batch than multiple small matrices.
-        Views allow fast and readable operations on this big tensor."""
-        node_views = []
-        adj_views = []
-
-        batch = nodes.shape[0]
-        for b in range(batch):
-            node_views.append(
-                nodes[b].narrow(dim=0, start=0, length=num_nodes[b].item() + 1)
-            )
-            adj_views.append(
-                adj_mats[b]
-                .narrow(dim=0, start=0, length=num_nodes[b].item() + 1)
-                .narrow(dim=1, start=0, length=num_nodes[b].item() + 1)
-            )
-        return node_views, adj_views
+        B = nodes.shape[0]
+        start, stop = self.get_flat_idxs(obs, nodes)
+        gps_s = slice(start["gps"], stop["gps"])
+        compass_s = slice(start["compass"], stop["compass"])
+        origin_nodes = nodes[torch.arange(B), num_nodes.squeeze()]
+        nodes[:, :, gps_s] = nodes[:, :, gps_s] - origin_nodes[:, None, gps_s]
+        nodes[:, :, compass_s] = (
+            nodes[:, :, compass_s] - origin_nodes[:, None, compass_s]
+        )
 
     def add_grad_dot(self, tensor, name):
         if self.cfg["export_gradients"] and self.training:
@@ -231,33 +212,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 v.render(f"/tmp/{k}")
             self.grad_dots.clear()
 
-    def gnn_forward(self, nodes, adj):
-        """Given a PyG batch, push it through
-        the GNN and return the output at the
-        just-added node"""
-        out = nodes
-        for fwd_pass in range(self.cfg["gcn_num_passes"]):
-            for name, layer in self.gnn.items():
-                if "act" in name:
-                    out = layer(out)
-                elif "graph" in name:
-                    # Edge weights are required to allow gradient backprop
-                    # thru dense->sparse conversion
-                    out = layer(out, adj)
-                elif "batchnorm" in name:
-                    out = layer(out)
-                else:
-                    raise NotImplementedError(
-                        'Graph config only recognizes "graph" and "act" layers'
-                    )
-        self.add_grad_dot(out, "after_gnn_conv")
-        assert self.cfg["gcn_output_size"] == out.shape[-1]
-
-        return out
-
-    def to_sparse(self):
-        pass
-
     def forward(
         self,
         input_dict: Dict[str, TensorType],
@@ -265,6 +219,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         seq_lens: TensorType,
     ) -> Tuple[TensorType, List[TensorType]]:
 
+        torch.autograd.set_detect_anomaly(True)
         flat = input_dict["obs_flat"]
         # Batch and Time
         # Forward expects outputs as [B, T, logits]
@@ -275,72 +230,21 @@ class RayObsGraph(TorchModelV2, nn.Module):
         values = torch.zeros(B, T, 1, device=flat.device)
         # Deconstruct batch into batch and time dimensions: [B, T, feats]
         flat = torch.reshape(flat, [-1, T] + list(flat.shape[1:]))
-        num_nodes, nodes, adj_mats, *edge_selector_states = state
+        nodes, adj_mats, weights, num_nodes = state
 
         num_nodes = num_nodes.long()
         adj_mats = adj_mats.long()
 
-        # We only have one training pass per batch
-        # this is because instead of propagating state,
-        # we are simply passed `obs` with a time dimension
         for t in range(T):
-            # Views will be [(num_nodes, features)...], [(num_nodes, num_nodes)...]
-            # each of length batch
-            node_views, adj_views = self.get_views(nodes, adj_mats, num_nodes)
-            # Flat will be shape [B, feat] for inference and
-            # shape [B, T, feat] for training
-            # For training, we want loss across the entire sequence
-            if len(flat.shape) > 2:
-                flat = flat[:, t, :].squeeze(1)
-
-            # We have limited space reserved, rewrite at the zeroth entry if we run out
-            # of space
-            graph_overflows = num_nodes == self.cfg["graph_size"]
-            if torch.any(graph_overflows):
-                print(
-                    "warning: ran out of graph space, overwriting old nodes (seq_len, graph_size):",
-                    T,
-                    self.cfg["graph_size"],
-                    "(You can ignore this for the first backwards pass)",
-                )
-                num_nodes[graph_overflows] = 0
-
-            # Apply edge selectors `forward`
-            edge_state_idx = 0
-            for e in self.edge_selectors:
-                if hasattr(e, "get_initial_state"):
-                    e(
-                        nodes,
-                        adj_mats,
-                        num_nodes,
-                        edge_selector_states[edge_state_idx],
-                        B,
-                    )
-                    edge_state_idx += 1
-                else:
-                    e(nodes, adj_mats, num_nodes, B)
-
-            # Do forwards in batch mode to be more efficient
-            gnn_out = self.gnn_forward(nodes, adj_mats)
-            self.add_grad_dot(gnn_out, "after_gnn_forward")
-            # Extract output at the node we are interested in
-            # Rather than use view, use num_nodes so if we run out of graph space
-            # we look at the newly placed zeroth node instead of the old nth node
-            # target_idxs = torch.stack((torch.arange(B, device=flat.device), num_nodes.squeeze()))
-            # node_feats = torch.cat([gnn_out[b, num_nodes[b]] for b in range(B)])
-            node_feats = gnn_out[
-                torch.arange(B, device=flat.device), num_nodes.squeeze()
-            ]
-            self.add_grad_dot(node_feats, "after_feat_extraction")
-
-            # Update graph with new node
-            num_nodes = num_nodes + 1
+            hidden = (nodes, adj_mats, weights, num_nodes)
+            out, hidden = self.gam(flat, hidden)
 
             # Outputs
-            # vtrace drops the last obs [-1] for vtrace
+            # vtrace drops the last obs [-1]
             # otherwise it should be in order [t0, t1, ... tn]
-            logits[:, -1] = self.logit_branch(node_feats)
-            values[:, -1] = self.value_branch(node_feats)
+            # import pdb; pdb.set_trace()
+            logits[:, -1] = self.logit_branch(out)
+            values[:, -1] = self.value_branch(out)
 
         logits = logits.reshape((B * T, self.num_outputs))
         self.add_grad_dot(logits, "final_logits")
@@ -349,12 +253,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.cur_val = values.squeeze(1)
         self.fwd_iters += 1
 
-        # For metric logging purposes
-        self.density = adj_mats.detach().float().mean().item()
-
-        state = [num_nodes, nodes, adj_mats]
-        if len(edge_selector_states) != 0:
-            state += [*edge_selector_states]
-
+        state = list(hidden)
         self.export_dots()
+
         return logits, state
