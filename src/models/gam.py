@@ -8,8 +8,8 @@ class GNN(torch.nn.Module):
     def hidden_block(self, hidden_size, activation, conv_type, attn_heads):
         return [
             conv_type(hidden_size, hidden_size),
-            torch_geometric.nn.BatchNorm(hidden_size),
             activation(),
+            torch_geometric.nn.BatchNorm(hidden_size),
         ]
 
     def __init__(
@@ -25,7 +25,11 @@ class GNN(torch.nn.Module):
     ):
         super().__init__()
 
-        first = [conv_type(input_size, hidden_size), activation()]
+        first = [
+            conv_type(input_size, hidden_size),
+            activation(),
+            torch_geometric.nn.BatchNorm(hidden_size),
+        ]
         hiddens = []
         for i in range(num_layers):
             hiddens += self.hidden_block(hidden_size, activation, conv_type, attn_heads)
@@ -58,10 +62,10 @@ class GNN(torch.nn.Module):
         output = batch.x.clone()
         for layer in self.layers:
             if type(layer) == torch_geometric.nn.BatchNorm:
-                import pdb
-
-                pdb.set_trace()
-            if type(layer) == self.conv_type:
+                orig_shape = output.shape
+                collapsed = output.reshape(-1, orig_shape[-1])
+                output = layer(collapsed).reshape(orig_shape)
+            elif type(layer) == self.conv_type:
                 # TODO: Multiply edge weights
                 output = layer(output, adj=batch.adj)
             else:
@@ -185,7 +189,7 @@ if __name__ == "__main__":
         weights = torch.zeros(batches, N, N)
         num_nodes = torch.zeros(batches, dtype=torch.long)
         s.zero_grad()
-        loss = None
+        loss = torch.tensor(0)
         for t in range(time):
             hidden = (nodes, adj, weights, num_nodes)
             obs, hidden = s.forward(obs, hidden)
