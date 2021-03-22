@@ -237,12 +237,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         for t in range(T):
             hidden = (nodes, adj_mats, weights, num_nodes)
-            out, hidden = self.gam(flat, hidden)
+            out, hidden = self.gam(flat[:, t, :], hidden)
 
             # Outputs
-            # vtrace drops the last obs [-1]
-            # otherwise it should be in order [t0, t1, ... tn]
-            # import pdb; pdb.set_trace()
             logits[:, -1] = self.logit_branch(out)
             values[:, -1] = self.value_branch(out)
 

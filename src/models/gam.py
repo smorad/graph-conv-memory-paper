@@ -133,14 +133,11 @@ class DenseGAM(torch.nn.Module):
 
         # Add new nodes to the current graph
         # starting at num_nodes
-        import pdb
-
-        pdb.set_trace()
         nodes[B_idx, num_nodes[B_idx]] = x[B_idx]
 
         # E.g. add self edges and normal weights
         for e in self.edge_selectors:
-            adj, weights = e.forward(nodes, adj, weights, num_nodes)
+            adj, weights = e.forward(nodes, adj, weights, num_nodes, B)
         # adj[B_idx, num_nodes[B_idx]] = 1
         # weights[B_idx, num_nodes[B_idx]] = 1
 
