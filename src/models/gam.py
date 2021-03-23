@@ -9,7 +9,7 @@ class GNN(torch.nn.Module):
         return [
             conv_type(hidden_size, hidden_size),
             activation(),
-            torch_geometric.nn.BatchNorm(hidden_size),
+            # torch_geometric.nn.BatchNorm(hidden_size),
         ]
 
     def __init__(
@@ -21,14 +21,15 @@ class GNN(torch.nn.Module):
         num_layers: int = 2,
         attn_heads: int = 1,
         conv_type: torch_geometric.nn.MessagePassing = torch_geometric.nn.DenseGCNConv,
-        activation: torch.nn.Module = torch.nn.ReLU,
+        activation: torch.nn.Module = torch.nn.Tanh,  # torch.nn.ReLU,
     ):
         super().__init__()
+        self.input_size = input_size
 
         first = [
             conv_type(input_size, hidden_size),
             activation(),
-            torch_geometric.nn.BatchNorm(hidden_size),
+            # torch_geometric.nn.BatchNorm(hidden_size),
         ]
         hiddens = []
         for i in range(num_layers):
@@ -101,7 +102,6 @@ class DenseGAM(torch.nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Add a memory x to the graph, and query the memory for it.
         B = batch size
-        T = time batch size
         N = maximum graph size
         Inputs:
             x: [B,feat]
@@ -128,8 +128,20 @@ class DenseGAM(torch.nn.Module):
         assert weights.dtype == torch.float
         assert num_nodes.dtype == torch.long
 
+        N = nodes.shape[1]
         B = x.shape[0]
         B_idx = torch.arange(B)
+
+        assert (
+            N == adj.shape[1] == adj.shape[2]
+        ), "N must be equal for adj mat and node mat"
+
+        if torch.any(num_nodes + 1 >= N):
+            print(
+                f"Warning, ran out of graph space (N={N}, t={num_nodes + 1}. Overwriting node matrix"
+            )
+            batch_overflow = num_nodes + 1 >= N
+            num_nodes[batch_overflow] = 0
 
         # Add new nodes to the current graph
         # starting at num_nodes
