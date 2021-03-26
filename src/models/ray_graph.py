@@ -32,7 +32,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Maximum number of nodes in a graph
         "graph_size": 32,
         # Maximum GCN forward passes per node, results in
-        # receptive field of gcn_num_layers * gcn_num_passes
+        # receptive field of gcn_hidden_layers * gcn_num_passes
         "gcn_num_passes": 1,
         # Size of latent vector coming out of GNN
         # before being fed to logits/vf layer(s)
@@ -40,7 +40,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Size of the hidden layers in the GNN
         "gcn_hidden_size": 256,
         # Number of layers in the GCN, must be >= 2
-        "gcn_num_layers": 2,
+        "gcn_hidden_layers": 2,
         # If using GAT, number of attention heads per layer
         "gcn_num_attn_heads": 1,
         # Graph convolution layer class
@@ -95,7 +95,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             output_size=cfg["gcn_output_size"],
             graph_size=cfg["graph_size"],
             hidden_size=cfg["gcn_hidden_size"],
-            num_layers=cfg["gcn_num_layers"],
+            num_layers=cfg["gcn_hidden_layers"],
             conv_type=cfg["gcn_conv_type"],
             activation=cfg["gcn_act_type"],
         )
