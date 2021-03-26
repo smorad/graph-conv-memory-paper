@@ -1,5 +1,4 @@
 import numpy as np
-from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
 
 
 class ExplorationReward:
@@ -14,11 +13,6 @@ class ExplorationReward:
 
     def on_env_load(self, env):
         self.env = env
-        self.follower = ShortestPathFollower(
-            self.env.habitat_env.sim,
-            self.env.episodes[0].goals[0].radius,
-            return_one_hot=False,
-        )
 
     def get_reward_range(self):
         return self.rr
