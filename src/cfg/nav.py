@@ -63,10 +63,10 @@ dnc_model = {
     "max_seq_len": seq_len,
 }
 
-models = [base_model, rnn_model, dnc_model]  # , temporal_model, bernoulli_model]
+models = [base_model, rnn_model]  # , dnc_model]  # , temporal_model, bernoulli_model]
 
 CFG = base.CFG
-CFG["ray"]["num_workers"] = 5
+CFG["ray"]["num_workers"] = 10
 CFG["ray"]["model"] = grid_search(models)
 
 # this corresponds to the number of learner GPUs used,
@@ -91,6 +91,7 @@ if os.environ.get("DEBUG", False):
     CFG["ray"]["model"] = base_model
     # CFG["ray"]["num_gpus"] = 0
     CFG["ray"]["num_workers"] = 0
+    CFG["ray"]["model"]["custom_model_config"]["export_gradients"] = True
     # CFG["ray"]["train_batch_size"] = 64
     # CFG["ray"]["rollout_fragment_length"] = 32
     CFG["tune"] = {

@@ -18,8 +18,7 @@ base_model = {
         "graph_size": 17,
         "gcn_output_size": 16,
         "gcn_hidden_size": 16,
-        "gcn_num_layers": 2,
-        "gcn_num_passes": 8,
+        "gcn_num_layers": 4,
         "edge_selectors": [],
     },
     "max_seq_len": 9,
@@ -31,8 +30,7 @@ temporal_model = {
         "graph_size": 17,
         "gcn_output_size": 16,
         "gcn_hidden_size": 16,
-        "gcn_num_layers": 2,
-        "gcn_num_passes": 8,
+        "gcn_num_layers": 4,
         "edge_selectors": [TemporalBackedge],
     },
     "max_seq_len": 9,
@@ -44,8 +42,7 @@ bernoulli_model = {
         "graph_size": 17,
         "gcn_output_size": 16,
         "gcn_hidden_size": 16,
-        "gcn_num_layers": 2,
-        "gcn_num_passes": 8,
+        "gcn_num_layers": 4,
         "edge_selectors": [BernoulliEdge],
     },
     "max_seq_len": 9,
@@ -56,17 +53,17 @@ rnn_model = {"use_lstm": True, "max_seq_len": 9, "lstm_cell_size": 16}
 dnc_model = {
     "custom_model": DNCMemory,
     "custom_model_config": {
-        "hidden_size": 32,
+        "hidden_size": 16,
         "num_layers": 1,
         "num_hidden_layers": 2,
-        "read_heads": 1,
+        "read_heads": 4,
         "nr_cells": 9,
-        "cell_size": 16,
+        "cell_size": 8,
     },
     "max_seq_len": 9,
 }
 
-models = [rnn_model, base_model, temporal_model, bernoulli_model]
+models = [rnn_model, dnc_model, base_model]  # temporal_model, bernoulli_model]
 
 CFG = {
     # Our specific trainer type
@@ -93,7 +90,7 @@ CFG = {
     },
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
-        "stop": {"training_iteration": 250},
+        "stop": {"info/num_steps_trained": 10e6},
     },
     # Env to be loaded when mode == human
     "human_env": RecallEnv,
@@ -102,10 +99,10 @@ CFG = {
 if os.environ.get("DEBUG", False):
     print("-------DEBUG MODE---------")
     # CFG['ray']['model']['custom_model_config']['edge_selectors'] = [TemporalBackedge]
-    CFG["ray"]["model"] = dnc_model  # temporal_model
+    CFG["ray"]["model"] = base_model
     # CFG['ray']['model']['custom_model_config']['export_gradients'] = True
     # CFG['ray']['model']['custom_model_config']
     # CFG['ray']['num_envs_per_worker'] = 1
-    CFG["ray"]["num_workers"] = 0
+    # CFG["ray"]["num_workers"] = 0
     # CFG['ray']['train_batch_size'] = 64
     # CFG['ray']['rollout_fragment_length'] = 32

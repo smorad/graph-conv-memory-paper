@@ -28,7 +28,7 @@ CFG = {
         "env_config": {
             # Path to the habitat yaml config, that specifies sensor info,
             # which maps to use, etc.
-            "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train_vae.yaml",
+            "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_val_vae.yaml",
             # Habitat preprocessors change the observation space in the simulator
             # These are loaded and run in-order
             "preprocessors": {
@@ -45,10 +45,13 @@ CFG = {
             "framestack": False,
             "custom_model": RayVAE,
             "custom_model_config": {
-                "z_dim": 256,  # grid_search([256, 384, 512]),
+                "z_dim": grid_search([384, 512]),
+                "depth_weight": 1.0,
+                "semantic_weight": 1.0,
+                "elbo_beta": 1.0,
             },
         },
-        "num_workers": 8,
+        "num_workers": 5,
         "num_cpus_per_worker": 4,
         # Total GPU usage: num_gpus (trainer proc) + num_gpus_per_worker (workers)
         "num_gpus_per_worker": 0.3,
