@@ -1,6 +1,3 @@
-from torchvision.models import resnext50_32x4d
-from torchvision.models.resnet import ResNet
-
 import torch
 from torch import nn
 

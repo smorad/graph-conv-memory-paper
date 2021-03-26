@@ -1,17 +1,21 @@
 import torch
 import gym
 from torch import nn
-from typing import Union, Dict, List, Tuple, Any
-import ray
+from typing import Union, Dict, List, Tuple
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.torch.misc import SlimFC
 from ray.rllib.utils.typing import ModelConfigDict, TensorType
 
-import os
-from dnc import DNC
+try:
+    from dnc import DNC
+except ModuleNotFoundError:
+    print("dnc module not found. Did you forget to 'pip install dnc'?")
+    raise
 
 
 class DNCMemory(TorchModelV2, nn.Module):
+    """Differentiable Neural Computer"""
+
     DEFAULT_CONFIG = {
         "dnc_model": DNC,
         "hidden_size": 128,
@@ -50,17 +54,16 @@ class DNCMemory(TorchModelV2, nn.Module):
 
         self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
         self.cur_val = None
-        self.fwd_iters = 0
 
         self.logit_branch = SlimFC(
-            in_size=self.obs_dim,  # self.cfg["cell_size"],
+            in_size=self.obs_dim,
             out_size=self.num_outputs,
             activation_fn=None,
             initializer=torch.nn.init.xavier_uniform_,
         )
 
         self.value_branch = SlimFC(
-            in_size=self.obs_dim,  # self.cfg["cell_size"],
+            in_size=self.obs_dim,
             out_size=1,
             activation_fn=None,
             initializer=torch.nn.init.xavier_uniform_,
@@ -68,7 +71,7 @@ class DNCMemory(TorchModelV2, nn.Module):
 
         self.dnc: Union[None, DNC] = None
 
-    def get_initial_state(self):
+    def get_initial_state(self) -> List[TensorType]:
         ctrl_hidden = [
             torch.zeros(2, self.cfg["hidden_size"]),
             torch.zeros(2, self.cfg["hidden_size"]),
@@ -91,11 +94,13 @@ class DNCMemory(TorchModelV2, nn.Module):
         assert len(state) == 9
         return state
 
-    def value_function(self):
+    def value_function(self) -> TensorType:
         assert self.cur_val is not None, "must call forward() first"
         return self.cur_val
 
-    def unpack_state(self, state: List[TensorType], B: int, T: int):
+    def unpack_state(
+        self, state: List[TensorType], B: int, T: int
+    ) -> Tuple[List[Tuple[TensorType, TensorType]], Dict[str, TensorType], TensorType]:
         """Given a list of tensors, reformat for self.dnc input"""
         assert len(state) == 9, "Failed to verify unpacked state"
         ctrl_hidden: List[Tuple[TensorType, TensorType]] = [
@@ -115,7 +120,7 @@ class DNCMemory(TorchModelV2, nn.Module):
         ctrl_hidden: List[Tuple[TensorType, TensorType]],
         memory_dict: Dict[str, TensorType],
         read_vecs: TensorType,
-    ):
+    ) -> List[TensorType]:
         """Given the dnc output, pack it into a list of tensors
         for rllib state. Order is ctrl_hidden, read_vecs, memory_dict"""
         state = []
@@ -130,24 +135,30 @@ class DNCMemory(TorchModelV2, nn.Module):
         return state
 
     def validate_unpack(self, dnc_output, unpacked_state):
-        # Validate correct shapes
+        """Ensure the unpacked state shapes match the DNC output"""
         s_ctrl_hidden, s_memory_dict, s_read_vecs = unpacked_state
         ctrl_hidden, memory_dict, read_vecs = dnc_output
 
         for i in range(len(ctrl_hidden)):
             for j in range(len(ctrl_hidden[i])):
-                assert (
-                    s_ctrl_hidden[i][j].shape == ctrl_hidden[i][j].shape
-                ), f"Controller state mismatch: got {s_ctrl_hidden[i][j].shape} should be {ctrl_hidden[i][j].shape}"
+                assert s_ctrl_hidden[i][j].shape == ctrl_hidden[i][j].shape, (
+                    "Controller state mismatch: got "
+                    f"{s_ctrl_hidden[i][j].shape} should be "
+                    f"{ctrl_hidden[i][j].shape}"
+                )
 
         for k in memory_dict:
-            assert (
-                s_memory_dict[k].shape == memory_dict[k].shape
-            ), f"Memory state mismatch at key {k}: got {s_memory_dict[k].shape} should be {memory_dict[k].shape}"
+            assert s_memory_dict[k].shape == memory_dict[k].shape, (
+                "Memory state mismatch at key "
+                f"{k}: got {s_memory_dict[k].shape} should be "
+                f"{memory_dict[k].shape}"
+            )
 
-        assert (
-            s_read_vecs.shape == read_vecs.shape
-        ), f"Read state mismatch: got {s_read_vecs.shape} should be {read_vecs.shape}"
+        assert s_read_vecs.shape == read_vecs.shape, (
+            "Read state mismatch: got "
+            f"{s_read_vecs.shape} should be "
+            f"{read_vecs.shape}"
+        )
 
     def forward(
         self,
