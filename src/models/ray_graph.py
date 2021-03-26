@@ -25,6 +25,8 @@ from torchviz import make_dot
 import torch_geometric
 from torch_geometric.data import Data, Batch
 from models.gam import GNN, DenseGAM
+import pydot
+import visdom
 
 
 class RayObsGraph(TorchModelV2, nn.Module):
@@ -87,6 +89,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.cur_val = None
         self.fwd_iters = 0
         self.grad_dots: Dict[str, Any] = {}
+        self.visdom = visdom.Visdom("http://localhost", port=5000)
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
@@ -186,19 +189,17 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         return starts, ends
 
-    def make_pose_relative(self, obs, nodes, num_nodes):
+    def make_pose_relative(self, obs, nodes, flat):
         """The GPS observation is in global coordinates. To ensure locality,
         make all node poses relative to the coordinate frame
         of the current observation"""
-        B = nodes.shape[0]
         start, stop = self.get_flat_idxs(obs, nodes)
         gps_s = slice(start["gps"], stop["gps"])
         compass_s = slice(start["compass"], stop["compass"])
-        origin_nodes = nodes[torch.arange(B), num_nodes.squeeze()]
-        nodes[:, :, gps_s] = nodes[:, :, gps_s] - origin_nodes[:, None, gps_s]
-        nodes[:, :, compass_s] = (
-            nodes[:, :, compass_s] - origin_nodes[:, None, compass_s]
-        )
+        nodes[:, :, gps_s] = nodes[:, :, gps_s] - flat[:, None, gps_s]
+        nodes[:, :, compass_s] = nodes[:, :, compass_s] - flat[:, None, compass_s]
+        flat = flat - flat  # set curr obs to (0,0)
+        return nodes, flat
 
     def add_grad_dot(self, tensor, name):
         if self.cfg["export_gradients"] and self.training:
@@ -209,7 +210,10 @@ class RayObsGraph(TorchModelV2, nn.Module):
     def export_dots(self):
         if self.cfg["export_gradients"] and self.training:
             for k, v in self.grad_dots.items():
-                v.render(f"/tmp/{k}")
+                path = f"/tmp/{k}"
+                v.render(path, format="svg")
+                self.visdom.svg(svgfile=path + ".svg")
+            print("Exported dots to visdom")
             self.grad_dots.clear()
 
     def forward(
@@ -219,7 +223,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         seq_lens: TensorType,
     ) -> Tuple[TensorType, List[TensorType]]:
 
-        torch.autograd.set_detect_anomaly(True)
         flat = input_dict["obs_flat"]
         # Batch and Time
         # Forward expects outputs as [B, T, logits]
@@ -236,6 +239,11 @@ class RayObsGraph(TorchModelV2, nn.Module):
         adj_mats = adj_mats.long()
 
         for t in range(T):
+            # import pdb; pdb.set_trace()
+            # with torch.no_grad():
+            nodes, flat[:, t] = self.make_pose_relative(
+                input_dict["obs"], nodes, flat[:, t]
+            )
             hidden = (nodes, adj_mats, weights, num_nodes)
             out, hidden = self.gam(flat[:, t, :], hidden)
 
