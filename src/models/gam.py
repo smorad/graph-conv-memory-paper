@@ -138,7 +138,7 @@ class DenseGAM(torch.nn.Module):
 
         if torch.any(num_nodes + 1 >= N):
             print(
-                f"Warning, ran out of graph space (N={N}, t={num_nodes + 1}. Overwriting node matrix"
+                f"Warning, ran out of graph space (N={N}, t={num_nodes.max() + 1}). Overwriting node matrix"
             )
             batch_overflow = num_nodes + 1 >= N
             num_nodes[batch_overflow] = 0
@@ -157,6 +157,9 @@ class DenseGAM(torch.nn.Module):
         batch = Batch(x=nodes, adj=adj, edge_weights=weights)
         node_feats = self.gnn(batch)
         mx = node_feats[B_idx, num_nodes[B_idx].squeeze()]
+        assert torch.all(
+            torch.isfinite(mx)
+        ), "Got NaN in returned memory, try using tanh activation"
 
         num_nodes = num_nodes + 1
 
