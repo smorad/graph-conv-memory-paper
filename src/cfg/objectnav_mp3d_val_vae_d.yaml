@@ -1,0 +1,41 @@
+ENVIRONMENT:
+  MAX_EPISODE_STEPS: 64
+
+SIMULATOR:
+  TURN_ANGLE: 30
+  TILT_ANGLE: 30
+  ACTION_SPACE_CONFIG: "v1"
+  AGENT_0:
+    SENSORS: ['DEPTH_SENSOR']
+    HEIGHT: 0.88
+    RADIUS: 0.18
+  HABITAT_SIM_V0:
+    GPU_DEVICE_ID: 0
+    ALLOW_SLIDING: False
+  DEPTH_SENSOR:
+    WIDTH: 32
+    HEIGHT: 32
+    HFOV: 79
+    MIN_DEPTH: 0.5
+    MAX_DEPTH: 5.0
+    POSITION: [0, 0.88, 0]
+TASK:
+  TYPE: ObjectNav-v1
+  POSSIBLE_ACTIONS: ["MOVE_FORWARD", "TURN_LEFT", "TURN_RIGHT"]
+  SUCCESS_DISTANCE: 0.2
+
+  SENSORS: ['OBJECTGOAL_SENSOR', 'COMPASS_SENSOR', 'GPS_SENSOR']
+  GOAL_SENSOR_UUID: objectgoal
+
+  MEASUREMENTS: ['DISTANCE_TO_GOAL', 'SUCCESS', 'SPL', 'SOFT_SPL']
+
+  DISTANCE_TO_GOAL:
+    DISTANCE_TO: VIEW_POINTS
+  SUCCESS:
+    SUCCESS_DISTANCE: 0.2
+
+DATASET:
+  TYPE: ObjectNav-v1
+  SPLIT: val_mini
+  DATA_PATH: "/root/habitat-lab/data/datasets/objectnav/mp3d/v1/{split}/{split}.json.gz"
+  SCENES_DIR: "/root/habitat-lab/data/scene_datasets/"
