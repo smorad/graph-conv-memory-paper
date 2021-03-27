@@ -124,14 +124,6 @@ class DenseGAM(torch.nn.Module):
         self.graph_size = graph_size
         self.edge_selectors = torch.nn.ModuleList(edge_selectors)
 
-    def pack_state(self):
-        """Pack state from into a list of torch.tensors"""
-        pass
-
-    def unpack_state(self, state):
-        """Unpack state from a list of torch.tensors into a torch_geometric.data.Batch"""
-        pass
-
     def forward(
         self, x, hidden: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -185,8 +177,8 @@ class DenseGAM(torch.nn.Module):
         # E.g. add self edges and normal weights
         for e in self.edge_selectors:
             adj, weights = e.forward(nodes, adj, weights, num_nodes, B)
-        adj[B_idx, num_nodes[B_idx].squeeze()] = 1
-        # weights[B_idx, num_nodes[B_idx]] = 1
+        adj[B_idx, num_nodes[B_idx].squeeze(), num_nodes[B_idx].squeeze()] = 1
+        # weights[B_idx, num_nodes[B_idx], num_nodes[B_idx]] = 1
 
         # Thru network
         batch = Batch(x=nodes, adj=adj, edge_weight=weights, B=B, N=N)
@@ -202,3 +194,36 @@ class DenseGAM(torch.nn.Module):
         num_nodes = num_nodes + 1
 
         return mx, (nodes, adj, weights, num_nodes)
+
+
+if __name__ == "__main__":
+    feats = 11
+    batches = 5
+    N = 10
+    g = GNN(feats, feats, sparse=True, conv_type=torch_geometric.nn.GCNConv)
+    s = DenseGAM(g)
+    T = 5
+
+    # Now do it in a loop to make sure grads propagate
+    optimizer = torch.optim.Adam(s.parameters(), lr=0.005)
+
+    losses = []
+    for i in range(3):
+        nodes = torch.arange(batches * N * feats, dtype=torch.float).reshape(
+            batches, N, feats
+        )
+        obs = torch.zeros(batches, feats)
+        adj = torch.zeros(batches, N, N, dtype=torch.long)
+        weights = torch.ones(batches, N, N)
+        num_nodes = torch.zeros(batches, dtype=torch.long)
+
+        s.zero_grad()
+        hidden = (nodes, adj, weights, num_nodes)
+        for t in range(T):
+            obs, hidden = s(obs, hidden)
+
+        loss = torch.norm(obs)
+        loss.backward()
+        losses.append(loss)
+
+        optimizer.step()

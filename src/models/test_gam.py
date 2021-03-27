@@ -30,6 +30,11 @@ class TestDenseGAM(unittest.TestCase):
         )
         if torch.any(nodes[:, 0] != self.obs):
             self.fail(f"{nodes[:,0]} != {self.obs}")
+        # Ensure only self edges
+        adj = torch.zeros_like(self.adj, dtype=torch.long)
+        adj[:, 0, 0] = 1
+        if torch.any(self.adj != adj):
+            self.fail(f"adj: {adj} != {self.obs}")
 
     def test_first_entry(self):
         _, (nodes, adj, weights, num_nodes) = self.s(
@@ -74,7 +79,8 @@ class TestDenseGAM(unittest.TestCase):
 
             self.optimizer.step()
 
-        self.assertTrue(losses[2] < losses[0])
+        if not losses[-1] < losses[0]:
+            self.fail(f"Final loss {losses[-1]} not better than init loss {losses[0]}")
 
 
 class TestSparseGAM(unittest.TestCase):
