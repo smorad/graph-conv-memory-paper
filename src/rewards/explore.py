@@ -17,7 +17,7 @@ class ExplorationReward:
     def get_reward_range(self):
         return self.rr
 
-    def get_reward(self, obs, grid_size=0.5):
+    def get_reward(self, obs, grid_size=0.2):
         curr_state = self.env.habitat_env._sim.get_agent_state()
 
         for s in self.past_states:
