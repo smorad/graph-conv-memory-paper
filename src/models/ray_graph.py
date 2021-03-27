@@ -14,7 +14,7 @@ from ray.rllib.models.modelv2 import (
     _unpack_obs,
 )
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork as TorchFC
-from ray.rllib.models.torch.misc import SlimFC
+from ray.rllib.models.torch.misc import SlimFC, normc_initializer
 from ray.rllib.models.torch.recurrent_net import RecurrentNetwork
 from ray.rllib.utils.typing import ModelConfigDict, TensorType
 from ray.rllib.policy.sample_batch import SampleBatch
@@ -70,9 +70,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
             self, obs_space, action_space, num_outputs, model_config, name
         )
         nn.Module.__init__(self)
-        # super(RayObsGraph, self).__init__(
-        #    obs_space, action_space, num_outputs, model_config, name
-        # )
         self.num_outputs = num_outputs
         self.obs_dim = gym.spaces.utils.flatdim(obs_space)
         self.act_dim = gym.spaces.utils.flatdim(action_space)
@@ -89,7 +86,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.cur_val = None
         self.fwd_iters = 0
         self.grad_dots: Dict[str, Any] = {}
-        self.visdom = visdom.Visdom("http://localhost", port=5000)
+        if self.cfg["export_gradients"]:
+            self.visdom = visdom.Visdom("http://localhost", port=5000)
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
@@ -108,14 +106,14 @@ class RayObsGraph(TorchModelV2, nn.Module):
             in_size=cfg["gcn_output_size"],
             out_size=self.num_outputs,
             activation_fn=None,
-            initializer=torch.nn.init.xavier_uniform_,
+            initializer=normc_initializer(0.01),  # torch.nn.init.xavier_uniform_,
         )
 
         self.value_branch = SlimFC(
             in_size=cfg["gcn_output_size"],
             out_size=1,
             activation_fn=None,
-            initializer=torch.nn.init.xavier_uniform_,
+            initializer=normc_initializer(0.01),  # torch.nn.init.xavier_uniform_,
         )
 
     def get_initial_state(self):
@@ -239,8 +237,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         adj_mats = adj_mats.long()
 
         for t in range(T):
-            # import pdb; pdb.set_trace()
-            # with torch.no_grad():
             nodes, flat[:, t] = self.make_pose_relative(
                 input_dict["obs"], nodes, flat[:, t]
             )
@@ -248,8 +244,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
             out, hidden = self.gam(flat[:, t, :], hidden)
 
             # Outputs
-            logits[:, -1] = self.logit_branch(out)
-            values[:, -1] = self.value_branch(out)
+            logits[:, t] = self.logit_branch(out)
+            values[:, t] = self.value_branch(out)
 
         logits = logits.reshape((B * T, self.num_outputs))
         self.add_grad_dot(logits, "final_logits")
