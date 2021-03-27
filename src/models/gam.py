@@ -2,6 +2,7 @@ import torch
 import torch_geometric
 from torch_geometric.data import Data, Batch
 from typing import List, Tuple, Union, Any, Dict
+import time
 
 
 class GNN(torch.nn.Module):
@@ -22,9 +23,11 @@ class GNN(torch.nn.Module):
         attn_heads: int = 1,
         conv_type: torch_geometric.nn.MessagePassing = torch_geometric.nn.DenseGCNConv,
         activation: torch.nn.Module = torch.nn.Tanh,  # torch.nn.ReLU,
+        sparse: bool = False,
     ):
         super().__init__()
         self.input_size = input_size
+        self.sparse = sparse
 
         first = [
             conv_type(input_size, hidden_size),
@@ -44,21 +47,42 @@ class GNN(torch.nn.Module):
         # convs. Edge weight is required to allow gradients to flow back
         # into the adjaceny matrix
 
-        # TODO: Make this work
-        raise NotImplementedError()
-        """
         offset, row, col = torch.nonzero(batch.adj > 0).t()
-        edge_weight = adj[offset, row, col]
-        row += offset * n
-        col += offset * n
-        edge_index = torch.stack([row, col], dim=0)
-        x = batch.x.view(batch.the_num_graphs * n, batch.x.shape[-1])
-        batch = torch.arange(0, batch.the_num_graphs).view(-1, 1).repeat(1, n).view(-1)
+        edge_weight = batch.adj[offset, row, col].float()
+        row += offset * batch.N
+        col += offset * batch.N
+        edge_index = torch.stack([row, col], dim=0).long()
+        x = batch.x.view(batch.B * batch.N, batch.x.shape[-1])
+        batch_idx = torch.arange(0, batch.B).view(-1, 1).repeat(1, batch.N).view(-1)
+        sparse_batch = Batch(
+            x=x,
+            edge_index=edge_index,
+            edge_weight=edge_weight,
+            batch=batch_idx,
+            B=batch.B,
+            N=batch.N,
+        )
 
-        return batch
-        """
+        return sparse_batch
 
-    def forward(self, batch: Batch) -> Batch:
+    def sparse_to_dense(self, batch: Batch) -> Batch:
+        sparse_edges = torch_geometric.utils.to_dense_adj(
+            batch.edge_index, batch=batch.batch, max_num_nodes=batch.N
+        )[0]
+        sparse_nodes = torch_geometric.utils.to_dense_batch(
+            x=batch.x, batch=batch.batch, max_num_nodes=batch.N
+        )[0]
+        dense_batch = Batch(x=sparse_nodes, adj=sparse_edges, N=batch.N, B=batch.B)
+        return dense_batch
+
+    def forward(self, batch: Batch):
+        if self.sparse:
+            # sparse_batch = self.dense_to_sparse(batch)
+            return self.forward_sparse(batch)
+        else:
+            return self.forward_dense(batch)
+
+    def forward_dense(self, batch: Batch) -> Batch:
         # Clone here to avoid backprop error
         output = batch.x.clone()
         for layer in self.layers:
@@ -72,6 +96,17 @@ class GNN(torch.nn.Module):
             else:
                 output = layer(output)
         return output
+
+    def forward_sparse(self, batch: Batch) -> Batch:
+        output = batch.x.clone()
+        for layer in self.layers:
+            if type(layer) == self.conv_type:
+                output = layer(output, edge_index=batch.edge_index)
+            else:
+                output = layer(output)
+        return torch_geometric.utils.to_dense_batch(
+            output, batch=batch.batch, max_num_nodes=batch.N
+        )[0]
 
 
 class DenseGAM(torch.nn.Module):
@@ -150,12 +185,15 @@ class DenseGAM(torch.nn.Module):
         # E.g. add self edges and normal weights
         for e in self.edge_selectors:
             adj, weights = e.forward(nodes, adj, weights, num_nodes, B)
-        # adj[B_idx, num_nodes[B_idx]] = 1
+        adj[B_idx, num_nodes[B_idx].squeeze()] = 1
         # weights[B_idx, num_nodes[B_idx]] = 1
 
         # Thru network
-        batch = Batch(x=nodes, adj=adj, edge_weights=weights)
+        batch = Batch(x=nodes, adj=adj, edge_weight=weights, B=B, N=N)
+        if self.gnn.sparse:
+            batch = self.gnn.dense_to_sparse(batch)
         node_feats = self.gnn(batch)
+        # Why is squeeze required here?
         mx = node_feats[B_idx, num_nodes[B_idx].squeeze()]
         assert torch.all(
             torch.isfinite(mx)
@@ -164,57 +202,3 @@ class DenseGAM(torch.nn.Module):
         num_nodes = num_nodes + 1
 
         return mx, (nodes, adj, weights, num_nodes)
-
-
-if __name__ == "__main__":
-    feats = 11
-    batches = 5
-    time = 4
-    n = 3
-    N = 10
-    g = GNN(feats, feats)
-    s = DenseGAM(g)
-    nodes = torch.arange(batches * N * feats, dtype=torch.float).reshape(
-        batches, N, feats
-    )
-    obs = torch.zeros(batches, feats)
-    adj = torch.zeros(batches, N, N, dtype=torch.long)
-    weights = torch.zeros(batches, N, N)
-    num_nodes = torch.zeros(batches, dtype=torch.long)
-
-    torch.autograd.set_detect_anomaly(True)
-    """
-    out = obs
-    for t in range(time):
-        hidden = (nodes, adj, weights, num_nodes)
-        out, hidden = s.forward(out, hidden)
-    # Ensure backprop works
-    loss = out.mean()
-    loss.backward()
-    """
-    print(s)
-
-    # Now do it in a loop to make sure grads propagate
-    optimizer = torch.optim.SGD(s.parameters(), lr=0.1)
-    i = 0
-    while True:
-        nodes = torch.arange(batches * N * feats, dtype=torch.float).reshape(
-            batches, N, feats
-        )
-        obs = torch.zeros(batches, feats)
-        adj = torch.zeros(batches, N, N, dtype=torch.long)
-        weights = torch.zeros(batches, N, N)
-        num_nodes = torch.zeros(batches, dtype=torch.long)
-        s.zero_grad()
-        loss = torch.tensor(0)
-        for t in range(time):
-            hidden = (nodes, adj, weights, num_nodes)
-            obs, hidden = s(obs, hidden)
-            loss = loss + obs.mean() ** 2
-
-        if i % 10 == 0:
-            print(loss)
-
-        loss.backward()
-        optimizer.step()
-        i += 1
