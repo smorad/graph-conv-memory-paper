@@ -9,6 +9,7 @@ from preprocessors.quantized_depth import QuantizedDepth
 from preprocessors.ghost_rgb import GhostRGB
 from preprocessors.autoencoder.ppae import PPAE
 from preprocessors.autoencoder.pprgbd_vae import PPRGBDVAE
+from preprocessors.autoencoder.ppd_vae import PPDepthVAE
 
 from rewards.basic import BasicReward
 from rewards.path import PathReward
@@ -35,7 +36,7 @@ env_cfg = {
         # "depth": QuantizedDepth,
         # "rgb_visualization": GhostRGB,
         # "semantic_and_depth_autoencoder": PPAE,
-        "rgbd_autoencoder": PPRGBDVAE,
+        "depth_autoencoder": PPDepthVAE,
     },
     # Multiple reward functions may be implemented at once,
     # they are summed together
@@ -70,15 +71,13 @@ CFG = {
         "rollout_fragment_length": 256,
         # Total number of timesteps to train per batch
         "train_batch_size": 1024,
-        # Vtrace seems to use a ton of GPU memory, and also appears to leak it when using
-        # graph models
-        # In the paper, it does not seem to make a huge performance difference
-        # unless experience replay is used
-        # "vtrace": False,
-        "lr": 0.0001,
-        "entropy_coeff": 0.05,
+        "lr": 0.001,
+        # Entropy 0.005 worked well for LSTM and MLP
+        # As well as lr 0.001 and vtrace: True
+        "entropy_coeff": 0.001,
         "env": NavEnv.__name__,
         "callbacks": CustomMetrics,
+        "num_sgd_iter": 1,
         # "placement_strategy": "SPREAD",
         # For evaluation
         # How many epochs/train iters
@@ -86,6 +85,7 @@ CFG = {
         # "evaluation_num_episodes": 10,
         # "evaluation_config": val_env_cfg,
         # "evaluation_num_workers": 1, # Must be >0 to get OpenGL
+        # "vtrace": False,
     },
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
@@ -93,5 +93,3 @@ CFG = {
     # Env to be loaded when mode == human
     "human_env": NavEnv,
 }
-
-CFG["ray"]["vtrace"] = False
