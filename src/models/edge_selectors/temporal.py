@@ -9,10 +9,13 @@ class TemporalBackedge(torch.nn.Module):
         super().__init__()
         self.parent = parent
 
-    def forward(self, nodes, adj_mats, num_nodes, state, B, **kwargs):
-        for b in range(B):
-            if adj_mats[b].shape[0] < 2:
-                continue
+    def forward(self, nodes, adj_mats, edge_weights, num_nodes, B):
+        [valid_batches] = torch.where(num_nodes >= 1)
+        adj_mats[
+            valid_batches, num_nodes[valid_batches], num_nodes[valid_batches] - 1
+        ] = 1
+        adj_mats[
+            valid_batches, num_nodes[valid_batches] - 1, num_nodes[valid_batches]
+        ] = 1
 
-            adj_mats[b, b - 1] = 1
-            adj_mats[b - 1, b] = 1
+        return adj_mats, edge_weights
