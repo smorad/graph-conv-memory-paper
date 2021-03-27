@@ -88,7 +88,7 @@ class NavEnv(habitat.RLEnv):
         hab_cfg.freeze()
         print(f"Env {split} loading scenes: {scene_splits[split]}")
 
-    def emit_debug_imgs(self, obs, info, keys=[]):
+    def emit_debug_imgs(self, obs, info, keys=[], scale=4):
         """Emit debug images to be served over the browser"""
         for key in keys:
             img = obs.get(key, None)
@@ -110,6 +110,10 @@ class NavEnv(habitat.RLEnv):
                 img = COLORS64[sem.flat].reshape(*sem.shape, 3)
             else:
                 continue
+
+            img = cv2.resize(
+                img, (img.shape[0] * scale, img.shape[1] * scale), cv2.INTER_NEAREST
+            )
 
             tmp_impath = f"{self.render_dir}/dbg_{key}.jpg.buf"
             impath = f"{self.render_dir}/dbg_{key}.jpg"
