@@ -35,7 +35,7 @@ RUN pip3 install gputil https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray
 RUN pip3 install 'git+https://github.com/facebookresearch/detectron2.git'
 
 # Install our deps; webserver for viewing observation and faster PIL
-RUN pip3 uninstall -y pillow && pip3 install flask pillow-simd Flask-SocketIO
+RUN pip3 uninstall -y pillow && pip3 install flask pillow-simd Flask-SocketIO visdom dnc
 
 # Copy token for gitlab clone
 RUN echo "6RJQmn5AezFsn7Nsqu7N" > /root/token && git clone https://oauth2:$(cat /root/token)@gitlab.developers.cam.ac.uk/cst/prorok-lab/vnav /root/vnav
