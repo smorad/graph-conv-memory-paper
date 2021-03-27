@@ -18,7 +18,7 @@ class TestDenseGAM(unittest.TestCase):
         self.nodes = torch.arange(batches * N * feats, dtype=torch.float).reshape(
             batches, N, feats
         )
-        self.obs = torch.zeros(batches, feats)
+        self.obs = torch.ones(batches, feats)
         self.adj = torch.zeros(batches, N, N, dtype=torch.long)
         self.weights = torch.ones(batches, N, N)
         self.num_nodes = torch.zeros(batches, dtype=torch.long)
@@ -59,11 +59,11 @@ class TestDenseGAM(unittest.TestCase):
         T = 4
         N = 10
         losses = []
-        for i in range(3):
+        for i in range(20):
             nodes = torch.arange(batches * N * feats, dtype=torch.float).reshape(
                 batches, N, feats
             )
-            obs = torch.zeros(batches, feats)
+            obs = torch.ones(batches, feats)
             adj = torch.zeros(batches, N, N, dtype=torch.long)
             weights = torch.ones(batches, N, N)
             num_nodes = torch.zeros(batches, dtype=torch.long)
@@ -97,7 +97,7 @@ class TestSparseGAM(unittest.TestCase):
         self.nodes = torch.arange(batches * N * feats, dtype=torch.float).reshape(
             batches, N, feats
         )
-        self.obs = torch.zeros(batches, feats)
+        self.obs = torch.ones(batches, feats)
         self.adj = torch.zeros(batches, N, N, dtype=torch.long)
         self.weights = torch.ones(batches, N, N)
         self.num_nodes = torch.zeros(batches, dtype=torch.long)
@@ -176,7 +176,6 @@ class TestSparseGAM(unittest.TestCase):
     """
 
     def test_propagation(self):
-        return
         out, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
@@ -184,17 +183,16 @@ class TestSparseGAM(unittest.TestCase):
             self.fail(f"{out} == {self.obs}")
 
     def test_sparse_learn(self):
-        return
         feats = 11
         batches = 5
         T = 4
         N = 10
         losses = []
-        for i in range(3):
+        for i in range(20):
             nodes = torch.arange(batches * N * feats, dtype=torch.float).reshape(
                 batches, N, feats
             )
-            obs = torch.zeros(batches, feats)
+            obs = torch.ones(batches, feats)
             adj = torch.zeros(batches, N, N, dtype=torch.long)
             weights = torch.ones(batches, N, N)
             num_nodes = torch.zeros(batches, dtype=torch.long)
