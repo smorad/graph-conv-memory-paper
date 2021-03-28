@@ -122,7 +122,7 @@ class DenseGAM(torch.nn.Module):
 
         self.gnn = gnn
         self.graph_size = graph_size
-        self.edge_selectors = torch.nn.ModuleList([e(None) for e in edge_selectors])
+        self.edge_selectors = edge_selectors
 
     def forward(
         self, x, hidden: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
@@ -177,8 +177,8 @@ class DenseGAM(torch.nn.Module):
 
         # E.g. add self edges and normal weights
         for e in self.edge_selectors:
-            adj, weights = e.forward(nodes, adj, weights, num_nodes, B)
-        adj[B_idx, num_nodes[B_idx].squeeze(), num_nodes[B_idx].squeeze()] = 1
+            adj, weights = e(nodes, adj, weights, num_nodes, B)
+        adj[B_idx, num_nodes[B_idx], num_nodes[B_idx]] = 1
         # weights[B_idx, num_nodes[B_idx], num_nodes[B_idx]] = 1
 
         # Thru network
@@ -186,8 +186,7 @@ class DenseGAM(torch.nn.Module):
         if self.gnn.sparse:
             batch = self.gnn.dense_to_sparse(batch)
         node_feats = self.gnn(batch)
-        # Why is squeeze required here?
-        mx = node_feats[B_idx, num_nodes[B_idx].squeeze()]
+        mx = node_feats[B_idx, num_nodes[B_idx]]
         assert torch.all(
             torch.isfinite(mx)
         ), "Got NaN in returned memory, try using tanh activation"

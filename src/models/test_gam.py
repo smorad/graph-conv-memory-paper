@@ -219,7 +219,7 @@ class TestTemporalEdge(unittest.TestCase):
         batches = 5
         N = 10
         self.g = GNN(feats, feats)
-        self.s = DenseGAM(self.g, edge_selectors=[TemporalBackedge])
+        self.s = DenseGAM(self.g, edge_selectors=[TemporalBackedge(num_hops=1)])
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -255,32 +255,40 @@ class TestDistanceEdge(unittest.TestCase):
         batches = 5
         N = 10
         self.g = GNN(feats, feats)
-        self.s = DenseGAM(self.g, edge_selectors=[EuclideanEdge])
+        self.s = DenseGAM(self.g, edge_selectors=[EuclideanEdge(max_distance=1)])
 
         self.nodes = torch.zeros(batches, N, feats, dtype=torch.float)
         self.obs = torch.zeros(batches, feats)
         self.adj = torch.zeros(batches, N, N, dtype=torch.long)
         self.weights = torch.ones(batches, N, N)
         self.num_nodes = torch.ones(batches, dtype=torch.long)
-        EuclideanEdge.MAX_DISTANCE = 1
 
     def test_zero_dist(self):
         # Start num_nodes = 1
         _, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
-        tgt_adj = torch.ones_like(adj, dtype=torch.long)
+        tgt_adj = torch.zeros_like(adj, dtype=torch.long)
+        # It adds self edge
+        tgt_adj[:, 1, 1] = 1
+        tgt_adj[:, 0, 1] = 1
+        tgt_adj[:, 1, 0] = 1
+
+        # TODO: Ensure not off by one
         if torch.any(tgt_adj != adj):
             self.fail(f"{tgt_adj} != {self.adj}")
 
     def test_one_dist(self):
-        return
         # Start num_nodes = 1
-        self.nodes[0, 0] = torch.zeros(self.nodes.shape[-1])
-        self.nodes[0, 1] = torch.ones(self.nodes.shape[-1])
+        self.obs = torch.ones_like(self.obs)
         _, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
+        tgt_adj = torch.zeros_like(adj, dtype=torch.long)
+        # Adds self edge
+        tgt_adj[:, 1, 1] = 1
+        if torch.any(tgt_adj != adj):
+            self.fail(f"{tgt_adj} != {self.adj}")
 
 
 if __name__ == "__main__":
