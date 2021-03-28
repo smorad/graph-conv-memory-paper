@@ -48,7 +48,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Graph convolution layer class
         "gcn_conv_type": torch_geometric.nn.DenseGCNConv,
         # Activation function for GNN layers
-        "gcn_act_type": torch.nn.ReLU,
+        "gcn_act_type": torch.nn.Tanh,  # torch.nn.ReLU,
         "use_batch_norm": False,
         # Methodologies for building edges
         # can be [temporal, dense, knn-mse, knn-cos]
@@ -75,7 +75,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.act_dim = gym.spaces.utils.flatdim(action_space)
 
         self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
-        self.edge_selectors = [e(self) for e in self.cfg["edge_selectors"]]
+        # self.edge_selectors = self.cfg['edge_selectors'] #[e(self) for e in self.cfg["edge_selectors"]]
         self.build_network(self.cfg)
         print("Full network is:", self)
 
@@ -100,7 +100,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             conv_type=cfg["gcn_conv_type"],
             activation=cfg["gcn_act_type"],
         )
-        self.gam = DenseGAM(gnn, edge_selectors=self.edge_selectors)
+        self.gam = DenseGAM(gnn, edge_selectors=self.cfg["edge_selectors"])
 
         self.logit_branch = SlimFC(
             in_size=cfg["gcn_output_size"],
@@ -128,7 +128,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
         )
 
-        num_nodes = torch.zeros([1], dtype=torch.long)
+        num_nodes = torch.tensor(0, dtype=torch.long)
         state = [nodes, edges, weights, num_nodes]
 
         return state
@@ -236,11 +236,11 @@ class RayObsGraph(TorchModelV2, nn.Module):
         num_nodes = num_nodes.long()
         adj_mats = adj_mats.long()
 
+        hidden = (nodes, adj_mats, weights, num_nodes)
         for t in range(T):
             nodes, flat[:, t] = self.make_pose_relative(
                 input_dict["obs"], nodes, flat[:, t]
             )
-            hidden = (nodes, adj_mats, weights, num_nodes)
             out, hidden = self.gam(flat[:, t, :], hidden)
 
             # Outputs
@@ -254,6 +254,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.cur_val = values.squeeze(1)
         self.fwd_iters += 1
 
+        # Old num_nodes shape
         state = list(hidden)
         self.export_dots()
 

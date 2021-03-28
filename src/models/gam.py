@@ -122,7 +122,7 @@ class DenseGAM(torch.nn.Module):
 
         self.gnn = gnn
         self.graph_size = graph_size
-        self.edge_selectors = torch.nn.ModuleList([e(self) for e in edge_selectors])
+        self.edge_selectors = torch.nn.ModuleList([e(None) for e in edge_selectors])
 
     def forward(
         self, x, hidden: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
@@ -154,6 +154,7 @@ class DenseGAM(torch.nn.Module):
         assert adj.dtype == torch.long
         assert weights.dtype == torch.float
         assert num_nodes.dtype == torch.long
+        assert num_nodes.dim() == 1
 
         N = nodes.shape[1]
         B = x.shape[0]
