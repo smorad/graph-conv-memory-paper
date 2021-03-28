@@ -3,7 +3,7 @@ import torch
 from gam import GNN, DenseGAM
 import torch_geometric
 from edge_selectors.temporal import TemporalBackedge
-from edge_selectors.distance import EuclideanEdge
+from edge_selectors.distance import EuclideanEdge, CosineEdge
 
 
 class TestDenseGAM(unittest.TestCase):
@@ -289,6 +289,12 @@ class TestDistanceEdge(unittest.TestCase):
         tgt_adj[:, 1, 1] = 1
         if torch.any(tgt_adj != adj):
             self.fail(f"{tgt_adj} != {self.adj}")
+
+    def test_cosine(self):
+        self.s = DenseGAM(self.g, edge_selectors=[CosineEdge(max_distance=1)])
+        _, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
 
 
 if __name__ == "__main__":
