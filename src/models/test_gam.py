@@ -4,6 +4,7 @@ from gam import GNN, DenseGAM
 import torch_geometric
 from edge_selectors.temporal import TemporalBackedge
 from edge_selectors.distance import EuclideanEdge, CosineEdge
+from edge_selectors.dense import DenseEdge
 
 
 class TestDenseGAM(unittest.TestCase):
@@ -295,6 +296,40 @@ class TestDistanceEdge(unittest.TestCase):
         _, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
+
+
+class TestDenseEdge(unittest.TestCase):
+    def setUp(self):
+        feats = 11
+        batches = 5
+        N = 10
+        self.g = GNN(feats, feats)
+        self.s = DenseGAM(self.g, edge_selectors=[DenseEdge()])
+
+        self.nodes = torch.zeros(batches, N, feats, dtype=torch.float)
+        self.obs = torch.zeros(batches, feats)
+        self.adj = torch.zeros(batches, N, N, dtype=torch.long)
+        self.weights = torch.ones(batches, N, N)
+        self.num_nodes = torch.zeros(batches, dtype=torch.long)
+
+    def test_two_obs(self):
+        # Start num_nodes = 1
+        _, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        _, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (nodes, adj, weights, num_nodes)
+        )
+        tgt_adj = torch.zeros_like(adj, dtype=torch.long)
+        # It adds self edge
+        tgt_adj[:, 1, 1] = 1
+        tgt_adj[:, 0, 0] = 1
+        tgt_adj[:, 1, 0] = 1
+        tgt_adj[:, 0, 1] = 1
+
+        # TODO: Ensure not off by one
+        if torch.any(tgt_adj != adj):
+            self.fail(f"{tgt_adj} != {self.adj}")
 
 
 if __name__ == "__main__":
