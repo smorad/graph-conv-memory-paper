@@ -25,18 +25,22 @@ class CustomMetrics(DefaultCallbacks):
 
     def on_train_result(self, *, trainer, result, **kwargs) -> None:
         m = trainer.get_policy().model
-        if not hasattr(m, "visdom_heat"):
+        if not hasattr(m, "visdom_mets"):
             return
 
-        for k, imgs in m.visdom_heat.items():
-            if k not in self.window_map:
-                win_hash = self.visdom.heatmap(imgs, opts={"caption": k, "title": k})
-                self.window_map[k] = win_hash
-            else:
-                self.visdom.heatmap(
-                    imgs, opts={"caption": k, "title": k}, win=self.window_map[k]
-                )
-        m.visdom_heat.clear()
+        for met_type, met in m.visdom_mets.items():
+            for k, imgs in met.items():
+                win = self.window_map.get(k, None)
+                opts = {"caption": k, "title": k}
+
+                if met_type == "heat":
+                    self.window_map[k] = self.visdom.heatmap(imgs, opts=opts, win=win)
+                elif met_type == "scatter":
+                    self.window_map[k] = self.visdom.scatter(imgs, opts=opts, win=win)
+                else:
+                    raise Exception(f"Unknown metric type: {met_type}")
+
+        m.visdom_mets.clear()
 
 
 """

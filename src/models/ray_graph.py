@@ -85,7 +85,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.cur_val = None
         self.fwd_iters = 0
         self.grad_dots: Dict[str, Any] = {}
-        self.visdom_heat: Dict[str, np.ndarray] = {}
+        self.visdom_mets: Dict[str, Dict[str, np.ndarray]] = {}
         # if self.cfg["export_gradients"]:
         self.visdom = visdom.Visdom("http://localhost", port=5000)
 
@@ -216,10 +216,23 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
     def adj_heatmap(self, adj):
         if self.training:
+            if "heat" not in self.visdom_mets:
+                self.visdom_mets["heat"] = {}
             key = f'adj_heatmap-{self.cfg["edge_selectors"]}'
-            if key not in self.visdom_heat:
-                self.visdom_heat[key] = np.zeros(shape=adj.shape[1:], dtype=np.float)
-            self.visdom_heat[key] += adj.sum(dim=0).detach().cpu().numpy()
+            if key not in self.visdom_mets["heat"]:
+                self.visdom_mets["heat"][key] = np.zeros(
+                    shape=adj.shape[1:], dtype=np.float
+                )
+            self.visdom_mets["heat"][key] += adj.sum(dim=0).detach().cpu().numpy()
+
+    def pose_adj_scatter(self, adj, num_nodes):
+        if self.training:
+            if "scatter" not in self.visdom_mets:
+                self.visdom_mets["scatter"] = {}
+            key = f'pose_scatter-{self.cfg["edge_selectors"]}'
+            if key not in self.visdom_mets["scatter"]:
+                self.visdom_mets[key] = np.zeros(shape=adj.shape[1:], dtype=np.float)
+            self.visdom_mets[key] += adj.sum(dim=0).detach().cpu().numpy()
 
     def forward(
         self,
@@ -254,6 +267,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             logits[:, t] = self.logit_branch(out)
             values[:, t] = self.value_branch(out)
             self.adj_heatmap(hidden[1])
+            # self.pose_adj_scatter(hidden[1], hidden[-1])
 
         logits = logits.reshape((B * T, self.num_outputs))
         self.add_grad_dot(logits, "final_logits")
