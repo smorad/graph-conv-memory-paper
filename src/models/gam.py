@@ -53,7 +53,12 @@ class GNN(torch.nn.Module):
         col += offset * batch.N
         edge_index = torch.stack([row, col], dim=0).long()
         x = batch.x.view(batch.B * batch.N, batch.x.shape[-1])
-        batch_idx = torch.arange(0, batch.B).view(-1, 1).repeat(1, batch.N).view(-1)
+        batch_idx = (
+            torch.arange(0, batch.B, device=batch.x.device)
+            .view(-1, 1)
+            .repeat(1, batch.N)
+            .view(-1)
+        )
         sparse_batch = Batch(
             x=x,
             edge_index=edge_index,
