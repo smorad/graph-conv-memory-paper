@@ -75,7 +75,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.act_dim = gym.spaces.utils.flatdim(action_space)
 
         self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
-        # self.edge_selectors = self.cfg['edge_selectors'] #[e(self) for e in self.cfg["edge_selectors"]]
         self.build_network(self.cfg)
         print("Full network is:", self)
 
@@ -86,8 +85,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.cur_val = None
         self.fwd_iters = 0
         self.grad_dots: Dict[str, Any] = {}
-        if self.cfg["export_gradients"]:
-            self.visdom = visdom.Visdom("http://localhost", port=5000)
+        self.visdom_heat: Dict[str, np.ndarray] = {}
+        # if self.cfg["export_gradients"]:
+        self.visdom = visdom.Visdom("http://localhost", port=5000)
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
@@ -214,6 +214,13 @@ class RayObsGraph(TorchModelV2, nn.Module):
             print("Exported dots to visdom")
             self.grad_dots.clear()
 
+    def adj_heatmap(self, adj):
+        if self.training:
+            key = f'adj_heatmap-{self.cfg["edge_selectors"]}'
+            if key not in self.visdom_heat:
+                self.visdom_heat[key] = np.zeros(shape=adj.shape[1:], dtype=np.float)
+            self.visdom_heat[key] += adj.sum(dim=0).detach().cpu().numpy()
+
     def forward(
         self,
         input_dict: Dict[str, TensorType],
@@ -246,6 +253,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             # Outputs
             logits[:, t] = self.logit_branch(out)
             values[:, t] = self.value_branch(out)
+            self.adj_heatmap(hidden[1])
 
         logits = logits.reshape((B * T, self.num_outputs))
         self.add_grad_dot(logits, "final_logits")

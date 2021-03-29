@@ -1,17 +1,42 @@
 from ray.rllib.agents.callbacks import DefaultCallbacks
 import ray
 import visdom
+import numpy as np
 
 
 class CustomMetrics(DefaultCallbacks):
 
     INFO_METRICS = ["distance_to_goal", "success", "spl", "softspl"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.visdom = visdom.Visdom("http://localhost", port=5000)
+        self.window_map = {}
+
     def on_episode_end(self, worker, base_env, policies, episode, env_index, **kwargs):
         info = episode.last_info_for()
         episode.custom_metrics.update(
             {k: info[k] for k in self.INFO_METRICS if k in info}
         )
+
+    def on_learn_on_batch(self, *, policy, train_batch, result: dict, **kwargs) -> None:
+        result["action_dist"] = train_batch["actions"]
+        result["act_sum"] = 1.0
+
+    def on_train_result(self, *, trainer, result, **kwargs) -> None:
+        m = trainer.get_policy().model
+        if not hasattr(m, "visdom_heat"):
+            return
+
+        for k, imgs in m.visdom_heat.items():
+            if k not in self.window_map:
+                win_hash = self.visdom.heatmap(imgs, opts={"caption": k, "title": k})
+                self.window_map[k] = win_hash
+            else:
+                self.visdom.heatmap(
+                    imgs, opts={"caption": k, "title": k}, win=self.window_map[k]
+                )
+        m.visdom_heat.clear()
 
 
 """
