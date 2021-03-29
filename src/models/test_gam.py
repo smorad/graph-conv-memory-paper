@@ -5,6 +5,7 @@ import torch_geometric
 from edge_selectors.temporal import TemporalBackedge
 from edge_selectors.distance import EuclideanEdge, CosineEdge
 from edge_selectors.dense import DenseEdge
+import torchviz
 
 
 class TestDenseGAM(unittest.TestCase):
@@ -25,6 +26,17 @@ class TestDenseGAM(unittest.TestCase):
         self.adj = torch.zeros(batches, N, N, dtype=torch.long)
         self.weights = torch.ones(batches, N, N)
         self.num_nodes = torch.zeros(batches, dtype=torch.long)
+
+    def test_grad_prop(self):
+        self.g = GNN(11, 11, test=True)
+        self.s = DenseGAM(self.g)
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        loss = torch.norm(out)
+        dot = torchviz.make_dot(loss, params=dict(self.s.named_parameters()))
+        # Make sure gradients make it all the way thru node_feats
+        self.assertTrue("grad_test_var" in dot.source)
 
     def test_zeroth_entry(self):
         # Ensure first obs ends up in nodes matrix

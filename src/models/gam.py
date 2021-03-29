@@ -24,10 +24,14 @@ class GNN(torch.nn.Module):
         conv_type: torch_geometric.nn.MessagePassing = torch_geometric.nn.DenseGCNConv,
         activation: torch.nn.Module = torch.nn.Tanh,  # torch.nn.ReLU,
         sparse: bool = False,
+        test: bool = False,
     ):
         super().__init__()
         self.input_size = input_size
         self.sparse = sparse
+        self.test = test
+        if test:
+            self.grad_test_var = torch.nn.Parameter(torch.tensor(1.0))
 
         first = [
             conv_type(input_size, hidden_size),
@@ -81,6 +85,8 @@ class GNN(torch.nn.Module):
         return dense_batch
 
     def forward(self, batch: Batch):
+        if self.test:
+            batch.x = batch.x * self.grad_test_var
         if self.sparse:
             # sparse_batch = self.dense_to_sparse(batch)
             return self.forward_sparse(batch)
