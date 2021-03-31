@@ -20,6 +20,8 @@ from ray.rllib.utils.typing import ModelConfigDict, TensorType
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.policy.rnn_sequencing import add_time_dimension
+from ray.rllib.utils.torch_ops import one_hot
+
 from torchviz import make_dot
 
 import torch_geometric
@@ -51,6 +53,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Methodologies for building edges
         # can be [temporal, dense, knn-mse, knn-cos]
         "edge_selectors": [],
+        # Whether the prev action should be placed in the observation nodes
+        "use_prev_action": True,
         # Set to true using sparse conv layers and false for dense conv layers
         "sparse": False,
         # For debug visualization
@@ -76,11 +80,19 @@ class RayObsGraph(TorchModelV2, nn.Module):
         nn.Module.__init__(self)
         self.num_outputs = num_outputs
         self.obs_dim = gym.spaces.utils.flatdim(obs_space)
+        self.act_space = action_space
         self.act_dim = gym.spaces.utils.flatdim(action_space)
 
         for k in custom_model_kwargs:
             assert k in self.DEFAULT_CONFIG, f"Invalid config key {k}"
         self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
+        self.input_dim = self.obs_dim
+        if self.cfg["use_prev_action"]:
+            self.input_dim += self.act_dim
+            self.view_requirements["prev_actions"] = ViewRequirement(
+                "actions", space=self.action_space, shift=-1
+            )
+
         self.build_network(self.cfg)
         print("Full network is:", self)
 
@@ -102,7 +114,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         else:
             init_fn = None
         gnn = GNN(
-            input_size=self.obs_dim,
+            input_size=self.input_dim,
             graph_size=cfg["graph_size"],
             hidden_size=cfg["gcn_hidden_size"],
             num_layers=cfg["gcn_hidden_layers"],
@@ -127,14 +139,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
             activation_fn=None,
             initializer=normc_initializer(0.01),  # torch.nn.init.xavier_uniform_,
         )
-        """
-        self.fcnet = torch.nn.Sequential(
-            torch.nn.Linear(self.obs_dim, cfg["gcn_hidden_size"])
-            torch.nn.Tanh(),
-            torch.nn.Linear(cfg["gcn_hidden_size"], cfg["gcn_hidden_size"])
-            torch.nn.Tanh()
-        )
-        """
 
     def get_initial_state(self):
         # TODO: Try using torch.sparse_coo layout
@@ -143,7 +147,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         edges = torch.zeros(
             (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
         )
-        nodes = torch.zeros((self.cfg["graph_size"], self.obs_dim))
+        nodes = torch.zeros((self.cfg["graph_size"], self.input_dim))
         weights = torch.zeros(
             (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
         )
@@ -261,7 +265,12 @@ class RayObsGraph(TorchModelV2, nn.Module):
         seq_lens: TensorType,
     ) -> Tuple[TensorType, List[TensorType]]:
 
-        flat = input_dict["obs_flat"]
+        if self.cfg["use_prev_action"]:
+            prev_acts = one_hot(input_dict["prev_actions"].float(), self.act_space)
+            prev_acts = prev_acts.reshape(-1, self.act_dim)
+            flat = torch.cat((input_dict["obs_flat"], prev_acts), dim=-1)
+        else:
+            flat = input_dict["obs_flat"]
         # Batch and Time
         # Forward expects outputs as [B, T, logits]
         B = len(seq_lens)
