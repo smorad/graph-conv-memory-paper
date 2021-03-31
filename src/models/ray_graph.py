@@ -36,10 +36,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Maximum GCN forward passes per node, results in
         # receptive field of gcn_hidden_layers * gcn_num_passes
         "gcn_num_passes": 1,
-        # Size of latent vector coming out of GNN
+        # Size of the hidden layers and final output of the GNN
         # before being fed to logits/vf layer(s)
-        "gcn_output_size": 256,
-        # Size of the hidden layers in the GNN
         "gcn_hidden_size": 256,
         # Number of layers in the GCN, must be >= 2
         "gcn_hidden_layers": 2,
@@ -53,8 +51,14 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Methodologies for building edges
         # can be [temporal, dense, knn-mse, knn-cos]
         "edge_selectors": [],
+        # Set to true using sparse conv layers and false for dense conv layers
+        "sparse": False,
         # For debug visualization
         "export_gradients": False,
+        # Initialize the gcn layers the same way
+        # rllib initializes fcnet layers
+        # for more fair comparisons
+        "fcnet_init": False,
     }
 
     def __init__(
@@ -74,6 +78,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.obs_dim = gym.spaces.utils.flatdim(obs_space)
         self.act_dim = gym.spaces.utils.flatdim(action_space)
 
+        for k in custom_model_kwargs:
+            assert k in self.DEFAULT_CONFIG, f"Invalid config key {k}"
         self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
         self.build_network(self.cfg)
         print("Full network is:", self)
@@ -91,30 +97,44 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
+        if self.cfg["fcnet_init"]:
+            init_fn = normc_initializer(1.0)
+        else:
+            init_fn = None
         gnn = GNN(
             input_size=self.obs_dim,
-            output_size=cfg["gcn_output_size"],
             graph_size=cfg["graph_size"],
             hidden_size=cfg["gcn_hidden_size"],
             num_layers=cfg["gcn_hidden_layers"],
             conv_type=cfg["gcn_conv_type"],
             activation=cfg["gcn_act_type"],
+            sparse=cfg["sparse"],
+            init_fn=init_fn,
         )
+
         self.gam = DenseGAM(gnn, edge_selectors=self.cfg["edge_selectors"])
 
         self.logit_branch = SlimFC(
-            in_size=cfg["gcn_output_size"],
+            in_size=cfg["gcn_hidden_size"],
             out_size=self.num_outputs,
             activation_fn=None,
             initializer=normc_initializer(0.01),  # torch.nn.init.xavier_uniform_,
         )
 
         self.value_branch = SlimFC(
-            in_size=cfg["gcn_output_size"],
+            in_size=cfg["gcn_hidden_size"],
             out_size=1,
             activation_fn=None,
             initializer=normc_initializer(0.01),  # torch.nn.init.xavier_uniform_,
         )
+        """
+        self.fcnet = torch.nn.Sequential(
+            torch.nn.Linear(self.obs_dim, cfg["gcn_hidden_size"])
+            torch.nn.Tanh(),
+            torch.nn.Linear(cfg["gcn_hidden_size"], cfg["gcn_hidden_size"])
+            torch.nn.Tanh()
+        )
+        """
 
     def get_initial_state(self):
         # TODO: Try using torch.sparse_coo layout
@@ -254,13 +274,16 @@ class RayObsGraph(TorchModelV2, nn.Module):
         nodes, adj_mats, weights, num_nodes = state
 
         num_nodes = num_nodes.long()
-        adj_mats = adj_mats.long()
+        if self.cfg["sparse"]:
+            adj_mats = adj_mats.long()
 
         hidden = (nodes, adj_mats, weights, num_nodes)
         for t in range(T):
+            """
             nodes, flat[:, t] = self.make_pose_relative(
                 input_dict["obs"], nodes, flat[:, t]
             )
+            """
             out, hidden = self.gam(flat[:, t, :], hidden)
 
             # Outputs

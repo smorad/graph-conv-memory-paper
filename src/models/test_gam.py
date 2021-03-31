@@ -8,12 +8,91 @@ from edge_selectors.dense import DenseEdge
 import torchviz
 
 
-class TestDenseGAM(unittest.TestCase):
+class TestDenseGAME2E(unittest.TestCase):
     def setUp(self):
+        torch.autograd.set_detect_anomaly(True)
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(feats, feats)
+        self.g = GNN(
+            input_size=feats,
+            graph_size=N,
+            hidden_size=feats,
+            activation=torch.nn.ReLU,
+            conv_type=torch_geometric.nn.DenseGraphConv,
+        )
+        for layer in self.g.layers:
+            if layer.__class__ == self.g.conv_type:
+                layer.lin_root.weight[:] = torch.diag(
+                    torch.ones(layer.lin_root.weight.shape[-1])
+                )
+                layer.lin_root.bias[:] = 0.0
+                layer.lin_rel.weight[:] = torch.diag(
+                    torch.ones(layer.lin_root.weight.shape[-1])
+                )
+        self.s = DenseGAM(self.g)
+
+        self.nodes = torch.zeros((batches, N, feats), dtype=torch.float)
+        self.all_obs = [
+            1 * torch.ones(batches, feats),
+            2 * torch.ones(batches, feats),
+            3 * torch.ones(batches, feats),
+        ]
+        self.adj = torch.zeros(batches, N, N)
+        self.weights = torch.ones(batches, N, N)
+        self.num_nodes = torch.zeros(batches, dtype=torch.long)
+
+    def test_e2e_self_edge(self):
+        (nodes, adj, weights, num_nodes) = (
+            self.nodes,
+            self.adj,
+            self.weights,
+            self.num_nodes,
+        )
+        # First iter
+        # Zeroth row of graph should be 1111...
+        # Output should be 1111...
+        obs = self.all_obs[0].clone()
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            obs, (nodes, adj, weights, num_nodes)
+        )
+        if torch.any(out != self.all_obs[0]):
+            self.fail(f"out: {out} != {self.all_obs[0]}")
+
+        desired_nodes = torch.cat(
+            (self.all_obs[0].unsqueeze(1), torch.zeros(5, 9, 11)), dim=1
+        )
+        if torch.any(nodes != desired_nodes):
+            self.fail(f"out: {nodes} != {desired_nodes}")
+
+        # Second iter
+        # Rows 1111 and 2222...
+        # Output should be 2222
+        obs = self.all_obs[1].clone()
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            obs, (nodes, adj, weights, num_nodes)
+        )
+        if torch.any(out != self.all_obs[1]):
+            self.fail(f"out: {out} != {self.all_obs[1]}")
+
+        # Third iter
+        # Rows 1111 and 2222 and 3333...
+        # Output should be 3333
+        obs = self.all_obs[2].clone()
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            obs, (nodes, adj, weights, num_nodes)
+        )
+        if torch.any(out != self.all_obs[2]):
+            self.fail(f"out: {out} != {self.all_obs[1]}")
+
+
+class TestDenseGAM(unittest.TestCase):
+    def setUp(self):
+        torch.autograd.set_detect_anomaly(True)
+        feats = 11
+        batches = 5
+        N = 10
+        self.g = GNN(input_size=feats, graph_size=N, hidden_size=feats)
         self.s = DenseGAM(self.g)
 
         # Now do it in a loop to make sure grads propagate
@@ -23,12 +102,12 @@ class TestDenseGAM(unittest.TestCase):
             batches, N, feats
         )
         self.obs = torch.ones(batches, feats)
-        self.adj = torch.zeros(batches, N, N, dtype=torch.long)
+        self.adj = torch.zeros(batches, N, N)
         self.weights = torch.ones(batches, N, N)
         self.num_nodes = torch.zeros(batches, dtype=torch.long)
 
     def test_grad_prop(self):
-        self.g = GNN(11, 11, test=True)
+        self.g = GNN(11, 11, 11, test=True)
         self.s = DenseGAM(self.g)
         out, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
@@ -47,9 +126,8 @@ class TestDenseGAM(unittest.TestCase):
             self.fail(f"{nodes[:,0]} != {self.obs}")
         # Ensure only self edges
         adj = torch.zeros_like(self.adj, dtype=torch.long)
-        adj[:, 0, 0] = 1
         if torch.any(self.adj != adj):
-            self.fail(f"adj: {adj} != {self.obs}")
+            self.fail(f"adj: {adj} != {self.adj}")
 
     def test_first_entry(self):
         _, (nodes, adj, weights, num_nodes) = self.s(
@@ -103,7 +181,13 @@ class TestSparseGAM(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(feats, feats, sparse=True, conv_type=torch_geometric.nn.GCNConv)
+        self.g = GNN(
+            input_size=feats,
+            graph_size=N,
+            hidden_size=feats,
+            sparse=True,
+            conv_type=torch_geometric.nn.GCNConv,
+        )
         self.s = DenseGAM(self.g)
 
         # Now do it in a loop to make sure grads propagate
@@ -256,8 +340,6 @@ class TestTemporalEdge(unittest.TestCase):
         tgt_adj[:, 0, 1] = 1
         tgt_adj[:, 1, 0] = 1
         # Also add self edges
-        tgt_adj[:, 0, 0] = 1
-        tgt_adj[:, 1, 1] = 1
         if torch.any(tgt_adj != self.adj):
             self.fail(f"{tgt_adj} != {self.adj}")
 

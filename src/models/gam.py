@@ -1,7 +1,7 @@
 import torch
 import torch_geometric
 from torch_geometric.data import Data, Batch
-from typing import List, Tuple, Union, Any, Dict
+from typing import List, Tuple, Union, Any, Dict, Callable
 import time
 
 
@@ -16,7 +16,6 @@ class GNN(torch.nn.Module):
     def __init__(
         self,
         input_size: int,
-        output_size: int,
         graph_size: int = 128,
         hidden_size: int = 64,
         num_layers: int = 2,
@@ -25,6 +24,8 @@ class GNN(torch.nn.Module):
         activation: torch.nn.Module = torch.nn.Tanh,  # torch.nn.ReLU,
         sparse: bool = False,
         test: bool = False,
+        # None means use default init for layer
+        init_fn: Callable = None,
     ):
         super().__init__()
         self.input_size = input_size
@@ -35,15 +36,15 @@ class GNN(torch.nn.Module):
 
         first = [
             conv_type(input_size, hidden_size),
-            activation(),
-            # torch_geometric.nn.BatchNorm(hidden_size),
         ]
         hiddens = []
         for i in range(num_layers):
             hiddens += self.hidden_block(hidden_size, activation, conv_type, attn_heads)
-        final = [conv_type(hidden_size, output_size)]
 
-        self.layers = torch.nn.ModuleList([*first, *hiddens, *final])
+        self.layers = torch.nn.ModuleList([*first, *hiddens])
+        if init_fn:
+            for p in self.parameters():
+                init_fn(p)
         self.conv_type = conv_type
 
     def dense_to_sparse(self, batch: Batch) -> Batch:
@@ -96,12 +97,9 @@ class GNN(torch.nn.Module):
     def forward_dense(self, batch: Batch) -> Batch:
         # Clone here to avoid backprop error
         output = batch.x.clone()
+        # adj = batch.adj.clone()
         for layer in self.layers:
-            if type(layer) == torch_geometric.nn.BatchNorm:
-                orig_shape = output.shape
-                collapsed = output.reshape(-1, orig_shape[-1])
-                output = layer(collapsed).reshape(orig_shape)
-            elif type(layer) == self.conv_type:
+            if type(layer) == self.conv_type:
                 # TODO: Multiply edge weights
                 output = layer(output, adj=batch.adj)
             else:
@@ -162,7 +160,8 @@ class DenseGAM(torch.nn.Module):
 
         assert x.dtype == torch.float32
         assert nodes.dtype == torch.float
-        assert adj.dtype == torch.long
+        if self.gnn.sparse:
+            assert adj.dtype == torch.long
         assert weights.dtype == torch.float
         assert num_nodes.dtype == torch.long
         assert num_nodes.dim() == 1
@@ -186,10 +185,11 @@ class DenseGAM(torch.nn.Module):
         # starting at num_nodes
         nodes[B_idx, num_nodes[B_idx]] = x[B_idx]
 
-        # E.g. add self edges and normal weights
+        # Do NOT add self edges or they will be counted twice using
+        # GraphConv
         for e in self.edge_selectors:
             adj, weights = e(nodes, adj, weights, num_nodes, B)
-        adj[B_idx, num_nodes[B_idx], num_nodes[B_idx]] = 1
+        # adj[B_idx, num_nodes[B_idx], num_nodes[B_idx]] = 1
         # weights[B_idx, num_nodes[B_idx], num_nodes[B_idx]] = 1
 
         # Thru network
