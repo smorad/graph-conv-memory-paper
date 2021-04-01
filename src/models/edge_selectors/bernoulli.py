@@ -27,9 +27,10 @@ class BernoulliEdge(torch.nn.Module):
 
     def to_hard(self, x: torch.Tensor) -> torch.Tensor:
         """Hard trick similar to that used in gumbel softmax in torch.
-        Rounds in {0, 1} in a differentiable fashion"""
+        Normally, argmax is not differentiable.
+        Rounds to {0, 1} in a differentiable fashion"""
         res = torch.stack((1.0 - x, x), dim=0)
-        return torch.argmax(res, dim=0).float()
+        return torch.nn.functional.gumbel_softmax(torch.log(res), hard=True, dim=0)[1]
 
     def build_edge_network(self, input_size: int) -> torch.nn.Sequential:
         """Builds a network to predict edges.

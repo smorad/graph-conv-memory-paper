@@ -456,6 +456,16 @@ class TestBernoulliEdge(unittest.TestCase):
         # Make sure gradients make it all the way thru node_feats
         self.assertTrue("grad_test_var" in dot.source)
 
+    def test_grad_prop2(self):
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        adj, weights = self.s.edge_selectors[0](
+            self.nodes, self.adj, self.weights, self.num_nodes, 5
+        )
+        self.assertTrue(adj.grad_fn, "Adj has no gradient")
+        self.assertTrue(weights.grad_fn, "Weight has no gradient")
+
 
 if __name__ == "__main__":
     unittest.main()
