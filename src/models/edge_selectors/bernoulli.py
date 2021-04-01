@@ -1,79 +1,112 @@
 import torch
 import itertools
+from ray.rllib.utils.typing import TensorType
 
 
 class BernoulliEdge(torch.nn.Module):
     """Add temporal bidirectional back edge, but only if we have >1 nodes
     E.g., node_{t} <-> node_{t-1}"""
 
-    def __init__(self, parent):
+    def __init__(self, input_size: int = 0, model: torch.nn.Sequential = None):
         super().__init__()
-        self.parent = parent
-        self.build_edge_network()
+        assert input_size or model, "Must specify either input_size or model"
+        if model:
+            self.edge_network = model
+        else:
+            self.edge_network = self.build_edge_network(input_size)
 
-    def build_edge_network(self):
+    def sample_random_var(self, p: torch.Tensor) -> torch.Tensor:
+        """Given a probability [0,1] p, return a backprop-capable random sample"""
+        e = torch.rand(p.shape, device=p.device)
+        return torch.sigmoid(
+            torch.log(e) - torch.log(1 - e) + torch.log(p) - torch.log(1 - p)
+        )
+
+    def to_hard(self, x: torch.Tensor) -> torch.Tensor:
+        """Hard trick similar to that used in gumbel softmax in torch.
+        Rounds in {0, 1} in a differentiable fashion"""
+        res = torch.stack((1.0 - x, x), dim=0)
+        return torch.argmax(res, dim=0).long()
+
+    def build_edge_network(self, input_size: int) -> torch.nn.Sequential:
         """Builds a network to predict edges.
-        Input: (i || j)
-        Output: [1 - p(edge), p(edge)] in R^2
+        Network input: (i || j)
+        Network output: p(edge) in [0,1]
         """
-        self.edge_network = torch.nn.Sequential(
-            torch.nn.Linear(2 * self.parent.obs_dim, self.parent.obs_dim),
-            torch.nn.ReLU(),
+        return torch.nn.Sequential(
+            torch.nn.Linear(2 * input_size, input_size),
             # Output is [yes_edge, no_edge]
-            torch.nn.Linear(self.parent.obs_dim, 2),
+            torch.nn.LeakyReLU(),
+            torch.nn.Linear(input_size, 1),
+            torch.nn.Sigmoid(),
+            # TODO: Find a way to store 2D logits in weights
+            # instead of softmax activation
+            # torch.nn.Softmax(dim=0)
             # We want output to be -inf, inf so do not
             # use ReLU as final activation
         )
 
-    def compute_logits(self, node_view, adj_view, num_node, state):
-        """Compute logits using a forward pass of the edge_network for a single graph.
-        Logits will be of shape [nodes, 2], where the last dim
-        corresponds to logits: [no_edge, yes_edge].
+    def compute_logits(
+        self,
+        nodes: torch.Tensor,
+        num_nodes: torch.Tensor,
+        weights: torch.Tensor,
+        B: int,
+    ):
+        """Computes edge probability between current node and all other nodes.
+        Returns a modified copy of the weight matrix containing edge probs"""
 
-        The computation occurs between the currently added node and
-        all previously added nodes. Results are stored in state."""
-        left_half_mat = node_view[num_node].repeat(node_view.shape[0], 1)
-        right_half_mat = node_view
-        # Shape [nodes, 2*node_feats]
-        network_in = torch.cat((left_half_mat, right_half_mat), dim=1)
-        # Batch inference, returns shape [nodes, 2]
-        logits = self.edge_network(network_in)
-        # Undirected edges, cache edge network forward passes
-        state[: num_node + 1, num_node] = logits
-        state[num_node, : num_node + 1] = logits
+        B_idx = torch.arange(B)
+        N = nodes.shape[1]
+        feat = nodes.shape[-1]
 
-    def get_initial_state(self, states, adj_mats, B):
-        for mat in adj_mats:
-            states.append(
-                torch.zeros((*mat.shape, 2), dtype=torch.float, device=mat.device)
-            )
-        self.edge_network = self.edge_network.to(adj_mats[0].device)
+        left_nodes = torch.stack([nodes[B_idx, num_nodes[B_idx]]] * N, dim=1)
+        right_nodes = nodes
+        edge_net_in = torch.cat((left_nodes, right_nodes), dim=-1)
+        # Edge network expects [B, feat] but we have [B, N, feat]
+        # so flatten to [B, feat] for big perf gainz and unflatten
+        batch_in = edge_net_in.view(B * N, 2 * feat)
+        batch_out = self.edge_network(batch_in)
+        probs = batch_out.view(B, N)
 
-        return states
+        # Undirected edges
+        # TODO: Experiment with directed edges
+        # TODO: Vectorize
+        # TODO: Do not push all N nodes thru net, only push num_nodes
+        w = weights.clone()
+        for b in B_idx:
+            # Include self edge to bypass empty tensor index
+            w[b, num_nodes[b], : num_nodes[b] + 1] = probs[b][: num_nodes[b] + 1]
+            w[b, : num_nodes[b] + 1, num_nodes[b]] = probs[b][: num_nodes[b] + 1]
+            # Then remove edge
+            # This does NOT add self edge [num_nodes[b], num_nodes[b]]
+            w[b, num_nodes[b], num_nodes[b]] = 0
 
-    def forward(self, nodes, adj_mats, num_nodes, state, B):
-        """A(i,j) = Ber[phi(i || j), e]"""
+        return w
+
+    def get_initial_state(self, nodes: TensorType, adj_mats: TensorType) -> TensorType:
+        """This must return a TensorType"""
+        state = torch.zeros((*adj_mats.shape, 2), device=adj_mats.device)
+        self.edge_network = self.edge_network.to(adj_mats.device)
+
+        return state
+
+    def forward(self, nodes, adj, weights, num_nodes, B):
+        """A(i,j) = Ber[phi(i || j), e]
+
+        Modify the nodes/adj_mats/state in-place by reference. Return value
+        is not used.
+        """
+
         # a(b,i,j) = gumbel_softmax(phi(n(b,i) || n(b,j))) for i, j < num_nodes
         # First run
-        if len(state) == 0:
-            state = self.get_initial_state(state, adj_mats, B)
+        if self.edge_network[0].weight.device != nodes.device:
+            self.edge_network = self.edge_network.to(nodes.device)
 
-        node_views, adj_views = self.parent.get_views(nodes, adj_mats, num_nodes)
+        # Weights serve as probabilities that we sample from
+        weights = self.compute_logits(nodes, num_nodes, weights, B)
+        sample = self.sample_random_var(weights)
+        a = adj.clone()
+        a = self.to_hard(sample)
 
-        # Compute logits for all nodes to curr node
-        # and place results in state adj matrix
-        for b in range(B):
-            # Concatenate left half of stacked current_node
-            # with right half of all current nodes
-            self.compute_logits(
-                node_views[b], adj_views[b], num_nodes[b].squeeze(), state[b]
-            )
-
-            # Now resample the entire logits adj mat using gumbel max trick
-            # TODO: This does not sample when we overwrite entries
-            probs = torch.nn.functional.gumbel_softmax(
-                state[b][: num_nodes[b] + 1, : num_nodes[b] + 1], hard=True, dim=-1
-            )
-            adj_views[b][: num_nodes[b] + 1, : num_nodes[b] + 1] = torch.argmax(
-                probs, dim=-1
-            )
+        return a, weights

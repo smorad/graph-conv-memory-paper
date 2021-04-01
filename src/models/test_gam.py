@@ -5,6 +5,7 @@ import torch_geometric
 from edge_selectors.temporal import TemporalBackedge
 from edge_selectors.distance import EuclideanEdge, CosineEdge
 from edge_selectors.dense import DenseEdge
+from edge_selectors.bernoulli import BernoulliEdge
 import torchviz
 
 
@@ -424,6 +425,36 @@ class TestDenseEdge(unittest.TestCase):
         # TODO: Ensure not off by one
         if torch.any(tgt_adj != adj):
             self.fail(f"{tgt_adj} != {self.adj}")
+
+
+class TestBernoulliEdge(unittest.TestCase):
+    def setUp(self):
+        torch.autograd.set_detect_anomaly(True)
+        feats = 11
+        batches = 5
+        N = 10
+        self.g = GNN(input_size=feats, graph_size=N, hidden_size=feats, test=True)
+        self.s = DenseGAM(self.g, edge_selectors=[BernoulliEdge(11)])
+
+        # Now do it in a loop to make sure grads propagate
+        self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
+
+        self.nodes = torch.arange(batches * N * feats, dtype=torch.float).reshape(
+            batches, N, feats
+        )
+        self.obs = torch.ones(batches, feats)
+        self.adj = torch.zeros(batches, N, N)
+        self.weights = torch.ones(batches, N, N)
+        self.num_nodes = torch.zeros(batches, dtype=torch.long)
+
+    def test_grad_prop(self):
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        loss = torch.norm(out)
+        dot = torchviz.make_dot(loss, params=dict(self.s.named_parameters()))
+        # Make sure gradients make it all the way thru node_feats
+        self.assertTrue("grad_test_var" in dot.source)
 
 
 if __name__ == "__main__":
