@@ -11,7 +11,7 @@ class CustomMetrics(DefaultCallbacks):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.visdom = visdom.Visdom("http://localhost", port=5000)
-        self.window_map = {}
+        self.train_iters = 0
 
     def on_episode_end(self, worker, base_env, policies, episode, env_index, **kwargs):
         info = episode.last_info_for()
@@ -25,22 +25,31 @@ class CustomMetrics(DefaultCallbacks):
 
     def on_train_result(self, *, trainer, result, **kwargs) -> None:
         m = trainer.get_policy().model
+
         if not hasattr(m, "visdom_mets"):
             return
 
         for met_type, met in m.visdom_mets.items():
             for k, imgs in met.items():
-                win = self.window_map.get(k, None)
                 opts = {"caption": k, "title": k}
-
                 if met_type == "heat":
-                    self.window_map[k] = self.visdom.heatmap(imgs, opts=opts, win=win)
+                    self.visdom.heatmap(imgs, opts=opts, win=k)
                 elif met_type == "scatter":
-                    self.window_map[k] = self.visdom.scatter(imgs, opts=opts, win=win)
+                    self.visdom.scatter(imgs, opts=opts, win=k)
+                elif met_type == "line":
+                    self.visdom.line(
+                        Y=imgs,
+                        X=np.array([self.train_iters]),
+                        opts=opts,
+                        win=k,
+                        name=k,
+                        update="append",
+                    )
                 else:
                     raise Exception(f"Unknown metric type: {met_type}")
 
         m.visdom_mets.clear()
+        self.train_iters += 1
 
 
 """

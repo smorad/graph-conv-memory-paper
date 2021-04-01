@@ -27,6 +27,7 @@ from torchviz import make_dot
 import torch_geometric
 from torch_geometric.data import Data, Batch
 from models.gam import GNN, DenseGAM
+from models.edge_selectors.bernoulli import BernoulliEdge
 import pydot
 import visdom
 
@@ -144,12 +145,16 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # TODO: Try using torch.sparse_coo layout
         # it's likely the conversion to numpy in rllib
         # breaks this
+        if self.cfg["sparse"]:
+            dtype = torch.long
+        else:
+            dtype = torch.float
         edges = torch.zeros(
-            (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
+            (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=dtype
         )
         nodes = torch.zeros((self.cfg["graph_size"], self.input_dim))
         weights = torch.zeros(
-            (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=torch.long
+            (self.cfg["graph_size"], self.cfg["graph_size"]), dtype=dtype
         )
 
         num_nodes = torch.tensor(0, dtype=torch.long)
@@ -258,6 +263,22 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 self.visdom_mets[key] = np.zeros(shape=adj.shape[1:], dtype=np.float)
             self.visdom_mets[key] += adj.sum(dim=0).detach().cpu().numpy()
 
+    def report_densities(self, adj, weight):
+        if self.training:
+            if "line" not in self.visdom_mets:
+                self.visdom_mets["line"] = {}
+            key = f'adj_density-{self.cfg["edge_selectors"]}'
+            if key not in self.visdom_mets["line"]:
+                self.visdom_mets["line"][key] = np.zeros((1,))
+            self.visdom_mets["line"][key] += adj.detach().float().mean().cpu().numpy()
+
+            key = f'weight_density-{self.cfg["edge_selectors"]}'
+            if key not in self.visdom_mets["line"]:
+                self.visdom_mets["line"][key] = np.zeros((1,))
+            self.visdom_mets["line"][key] += (
+                weight.detach().float().mean().cpu().numpy()
+            )
+
     def forward(
         self,
         input_dict: Dict[str, TensorType],
@@ -298,8 +319,10 @@ class RayObsGraph(TorchModelV2, nn.Module):
             # Outputs
             logits[:, t] = self.logit_branch(out)
             values[:, t] = self.value_branch(out)
-            self.adj_heatmap(hidden[1])
-            # self.pose_adj_scatter(hidden[1], hidden[-1])
+
+        self.adj_heatmap(hidden[1])
+        self.report_densities(adj_mats, weights)
+        # self.pose_adj_scatter(hidden[1], hidden[-1])
 
         logits = logits.reshape((B * T, self.num_outputs))
         self.add_grad_dot(logits, "final_logits")
@@ -313,3 +336,11 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.export_dots()
 
         return logits, state
+
+    def custom_loss(
+        self, policy_loss: List[TensorType], loss_inputs: Dict[str, TensorType]
+    ) -> List[TensorType]:
+        if not any([isinstance(e, BernoulliEdge) for e in self.cfg["edge_selectors"]]):
+            return policy_loss
+        # import pdb; pdb.set_trace()
+        return policy_loss
