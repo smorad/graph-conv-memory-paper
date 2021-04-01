@@ -29,7 +29,7 @@ class BernoulliEdge(torch.nn.Module):
         """Hard trick similar to that used in gumbel softmax in torch.
         Rounds in {0, 1} in a differentiable fashion"""
         res = torch.stack((1.0 - x, x), dim=0)
-        return torch.argmax(res, dim=0).long()
+        return torch.argmax(res, dim=0).float()
 
     def build_edge_network(self, input_size: int) -> torch.nn.Sequential:
         """Builds a network to predict edges.
@@ -66,29 +66,18 @@ class BernoulliEdge(torch.nn.Module):
         batch_out = self.edge_network(batch_in)
         probs = batch_out.view(B, N)
 
-        self.metrics["edgenet_mean"] = probs.mean().detach().cpu().numpy()
-        self.metrics["edgenet_var"] = probs.var().detach().cpu().numpy()
-
         # Undirected edges
         # TODO: This is not equivariant as nn(a,b) != nn(b,a), run both dirs thru
         # and mean the output
         # TODO: Experiment with directed edges
         # TODO: Vectorize
         # TODO: Do not push all N nodes thru net, only push num_nodes
-        w = weights.clone()
         for b in B_idx:
             # This does NOT add self edge [num_nodes[b], num_nodes[b]]
-            w[b, num_nodes[b], : num_nodes[b]] = probs[b][: num_nodes[b]]
-            w[b, : num_nodes[b], num_nodes[b]] = probs[b][: num_nodes[b]]
+            weights[b, num_nodes[b], : num_nodes[b]] = probs[b][: num_nodes[b]]
+            weights[b, : num_nodes[b], num_nodes[b]] = probs[b][: num_nodes[b]]
 
-        return w
-
-    def get_initial_state(self, nodes: TensorType, adj_mats: TensorType) -> TensorType:
-        """This must return a TensorType"""
-        state = torch.zeros((*adj_mats.shape, 2), device=adj_mats.device)
-        self.edge_network = self.edge_network.to(adj_mats.device)
-
-        return state
+        return weights
 
     def forward(self, nodes, adj, weights, num_nodes, B):
         """A(i,j) = Ber[phi(i || j), e]
@@ -103,11 +92,10 @@ class BernoulliEdge(torch.nn.Module):
             self.edge_network = self.edge_network.to(nodes.device)
 
         # Weights serve as probabilities that we sample from
+        # w = weights.clone()
         weights = self.compute_logits(nodes, num_nodes, weights, B)
         sample = self.sample_random_var(weights)
-        a = adj.clone()
-        a = self.to_hard(sample)
+        # a = adj.clone()
+        adj = self.to_hard(sample)
 
-        self.metrics["density"] = (a.sum() / a.numel()).detach().cpu().numpy()
-
-        return a, weights
+        return adj, weights

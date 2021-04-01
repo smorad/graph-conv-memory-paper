@@ -23,7 +23,7 @@ class GNN(torch.nn.Module):
         conv_type: torch_geometric.nn.MessagePassing = torch_geometric.nn.DenseGCNConv,
         activation: torch.nn.Module = torch.nn.Tanh,  # torch.nn.ReLU,
         sparse: bool = False,
-        test: bool = False,
+        test: Union[str, None] = None,
         # None means use default init for layer
         init_fn: Callable = None,
     ):
@@ -86,7 +86,9 @@ class GNN(torch.nn.Module):
         return dense_batch
 
     def forward(self, batch: Batch):
-        if self.test:
+        if self.test == "adj":
+            batch.adj = batch.adj * self.grad_test_var
+        elif self.test:
             batch.x = batch.x * self.grad_test_var
         if self.sparse:
             # sparse_batch = self.dense_to_sparse(batch)
@@ -97,7 +99,6 @@ class GNN(torch.nn.Module):
     def forward_dense(self, batch: Batch) -> Batch:
         # Clone here to avoid backprop error
         output = batch.x.clone()
-        # adj = batch.adj.clone()
         for layer in self.layers:
             if type(layer) == self.conv_type:
                 # TODO: Multiply edge weights

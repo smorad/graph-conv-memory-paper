@@ -433,7 +433,7 @@ class TestBernoulliEdge(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(input_size=feats, graph_size=N, hidden_size=feats, test=True)
+        self.g = GNN(input_size=feats, graph_size=N, hidden_size=feats, test="adj")
         self.s = DenseGAM(self.g, edge_selectors=[BernoulliEdge(11)])
 
         # Now do it in a loop to make sure grads propagate
