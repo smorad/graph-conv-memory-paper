@@ -1,6 +1,8 @@
 import torch
 import itertools
 from ray.rllib.utils.typing import TensorType
+from typing import Dict
+import numpy as np
 
 
 class BernoulliEdge(torch.nn.Module):
@@ -14,6 +16,7 @@ class BernoulliEdge(torch.nn.Module):
             self.edge_network = model
         else:
             self.edge_network = self.build_edge_network(input_size)
+        self.metrics: Dict[str, np.ndarray] = {}
 
     def sample_random_var(self, p: torch.Tensor) -> torch.Tensor:
         """Given a probability [0,1] p, return a backprop-capable random sample"""
@@ -35,15 +38,9 @@ class BernoulliEdge(torch.nn.Module):
         """
         return torch.nn.Sequential(
             torch.nn.Linear(2 * input_size, input_size),
-            # Output is [yes_edge, no_edge]
             torch.nn.LeakyReLU(),
             torch.nn.Linear(input_size, 1),
             torch.nn.Sigmoid(),
-            # TODO: Find a way to store 2D logits in weights
-            # instead of softmax activation
-            # torch.nn.Softmax(dim=0)
-            # We want output to be -inf, inf so do not
-            # use ReLU as final activation
         )
 
     def compute_logits(
@@ -69,18 +66,20 @@ class BernoulliEdge(torch.nn.Module):
         batch_out = self.edge_network(batch_in)
         probs = batch_out.view(B, N)
 
+        self.metrics["edgenet_mean"] = probs.mean().detach().cpu().numpy()
+        self.metrics["edgenet_var"] = probs.var().detach().cpu().numpy()
+
         # Undirected edges
+        # TODO: This is not equivariant as nn(a,b) != nn(b,a), run both dirs thru
+        # and mean the output
         # TODO: Experiment with directed edges
         # TODO: Vectorize
         # TODO: Do not push all N nodes thru net, only push num_nodes
         w = weights.clone()
         for b in B_idx:
-            # Include self edge to bypass empty tensor index
-            w[b, num_nodes[b], : num_nodes[b] + 1] = probs[b][: num_nodes[b] + 1]
-            w[b, : num_nodes[b] + 1, num_nodes[b]] = probs[b][: num_nodes[b] + 1]
-            # Then remove edge
             # This does NOT add self edge [num_nodes[b], num_nodes[b]]
-            w[b, num_nodes[b], num_nodes[b]] = 0
+            w[b, num_nodes[b], : num_nodes[b]] = probs[b][: num_nodes[b]]
+            w[b, : num_nodes[b], num_nodes[b]] = probs[b][: num_nodes[b]]
 
         return w
 
@@ -108,5 +107,7 @@ class BernoulliEdge(torch.nn.Module):
         sample = self.sample_random_var(weights)
         a = adj.clone()
         a = self.to_hard(sample)
+
+        self.metrics["density"] = (a.sum() / a.numel()).detach().cpu().numpy()
 
         return a, weights
