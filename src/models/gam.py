@@ -132,7 +132,7 @@ class DenseGAM(torch.nn.Module):
 
         self.gnn = gnn
         self.graph_size = graph_size
-        self.edge_selectors = edge_selectors
+        self.edge_selectors = torch.nn.ModuleList(edge_selectors)
 
     def forward(
         self, x, hidden: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
