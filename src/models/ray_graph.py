@@ -56,6 +56,12 @@ class RayObsGraph(TorchModelV2, nn.Module):
         "edge_selectors": [],
         # Whether the prev action should be placed in the observation nodes
         "use_prev_action": True,
+        # Add regularization loss based on weight matrix.
+        # This only makes sense if using the BernoulliEdge.
+        # Note: The way rllib does backprop makes this quite slow
+        # it requires another forward pass through the edge network
+        "regularize": False,
+        "regularization_coeff": 0.1,
         # Set to true using sparse conv layers and false for dense conv layers
         "sparse": False,
         # For debug visualization
@@ -123,6 +129,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             activation=cfg["gcn_act_type"],
             sparse=cfg["sparse"],
             init_fn=init_fn,
+            test="adj",
         )
 
         self.gam = DenseGAM(gnn, edge_selectors=self.cfg["edge_selectors"])
@@ -261,7 +268,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             key = f'pose_scatter-{self.cfg["edge_selectors"]}'
             if key not in self.visdom_mets["scatter"]:
                 self.visdom_mets[key] = np.zeros(shape=adj.shape[1:], dtype=np.float)
-            self.visdom_mets[key] += adj.sum(dim=0).detach().cpu().numpy()
+            self.visdom_mets[key] = adj.sum(dim=0).detach().cpu().numpy()
 
     def report_densities(self, adj, weight):
         if self.training:
@@ -270,13 +277,16 @@ class RayObsGraph(TorchModelV2, nn.Module):
             key = f'adj_density-{self.cfg["edge_selectors"]}'
             if key not in self.visdom_mets["line"]:
                 self.visdom_mets["line"][key] = np.zeros((1,))
-            self.visdom_mets["line"][key] += adj.detach().float().mean().cpu().numpy()
+            adj_det = adj.detach()
+            self.visdom_mets["line"][key] = (
+                adj_det.float().mean().cpu().numpy().reshape(-1)
+            )
 
             key = f'weight_density-{self.cfg["edge_selectors"]}'
             if key not in self.visdom_mets["line"]:
                 self.visdom_mets["line"][key] = np.zeros((1,))
-            self.visdom_mets["line"][key] += (
-                weight.detach().float().mean().cpu().numpy()
+            self.visdom_mets["line"][key] = (
+                weight.detach().float().mean().cpu().numpy().reshape(-1)
             )
 
     def forward(
@@ -309,11 +319,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         hidden = (nodes, adj_mats, weights, num_nodes)
         for t in range(T):
-            """
-            nodes, flat[:, t] = self.make_pose_relative(
-                input_dict["obs"], nodes, flat[:, t]
-            )
-            """
             out, hidden = self.gam(flat[:, t, :], hidden)
 
             # Outputs
@@ -321,7 +326,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
             values[:, t] = self.value_branch(out)
 
         self.adj_heatmap(hidden[1])
-        self.report_densities(adj_mats, weights)
+        self.report_densities(hidden[1], hidden[2])
         # self.pose_adj_scatter(hidden[1], hidden[-1])
 
         logits = logits.reshape((B * T, self.num_outputs))
@@ -340,7 +345,28 @@ class RayObsGraph(TorchModelV2, nn.Module):
     def custom_loss(
         self, policy_loss: List[TensorType], loss_inputs: Dict[str, TensorType]
     ) -> List[TensorType]:
-        if not any([isinstance(e, BernoulliEdge) for e in self.cfg["edge_selectors"]]):
+
+        # if not any([isinstance(e, BernoulliEdge) for e in self.cfg["edge_selectors"]]):
+        #    return policy_loss
+        if not self.cfg["regularize"]:
             return policy_loss
-        # import pdb; pdb.set_trace()
+
+        [bern_edge] = [
+            e for e in self.cfg["edge_selectors"] if isinstance(e, BernoulliEdge)
+        ]
+
+        # hidden = (nodes, adj_mats, weights, num_nodes)
+        (nodes, _, weights, num_nodes) = (
+            loss_inputs["state_out_0"],
+            loss_inputs["state_out_1"],
+            loss_inputs["state_out_2"],
+            loss_inputs["state_out_3"].long(),
+        )
+        edge_probs = bern_edge.compute_logits(nodes, num_nodes, weights, nodes.shape[0])
+        assert edge_probs.shape[1:] == (self.cfg["graph_size"], self.cfg["graph_size"])
+        # Regularization loss for bernoulli
+        # Loss is meaned across batches
+        reg_loss = self.cfg["regularization_coeff"] * edge_probs.mean()
+        print("Edgenet loss:", reg_loss, "total loss:", policy_loss[0])
+        policy_loss[0] = policy_loss[0] + reg_loss
         return policy_loss
