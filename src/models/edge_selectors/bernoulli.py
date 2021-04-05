@@ -29,7 +29,7 @@ class BernoulliEdge(torch.nn.Module):
         """Hard trick similar to that used in gumbel softmax in torch.
         Normally, argmax is not differentiable.
         Rounds to {0, 1} in a differentiable fashion"""
-        res = torch.stack((1.0 - x, x), dim=0)
+        res = torch.stack((1.0 - x, x), dim=0).clamp(0.0001, 0.9999)
         return torch.nn.functional.gumbel_softmax(torch.log(res), hard=True, dim=0)[1]
 
     def build_edge_network(self, input_size: int) -> torch.nn.Sequential:
@@ -78,7 +78,7 @@ class BernoulliEdge(torch.nn.Module):
             weights[b, num_nodes[b], : num_nodes[b]] = probs[b][: num_nodes[b]]
             weights[b, : num_nodes[b], num_nodes[b]] = probs[b][: num_nodes[b]]
 
-        return weights
+        return weights.clamp(0.0001, 0.9999)
 
     def forward(self, nodes, adj, weights, num_nodes, B):
         """A(i,j) = Ber[phi(i || j), e]
@@ -93,10 +93,8 @@ class BernoulliEdge(torch.nn.Module):
             self.edge_network = self.edge_network.to(nodes.device)
 
         # Weights serve as probabilities that we sample from
-        # w = weights.clone()
         weights = self.compute_logits(nodes, num_nodes, weights, B)
         sample = self.sample_random_var(weights)
-        # a = adj.clone()
         adj = self.to_hard(sample)
 
         return adj, weights

@@ -189,7 +189,7 @@ class DenseGAM(torch.nn.Module):
         # Do NOT add self edges or they will be counted twice using
         # GraphConv
         for e in self.edge_selectors:
-            adj, weights = e(nodes, adj, weights, num_nodes, B)
+            adj, weights = e(nodes, adj.clone(), weights.clone(), num_nodes, B)
         # adj[B_idx, num_nodes[B_idx], num_nodes[B_idx]] = 1
         # weights[B_idx, num_nodes[B_idx], num_nodes[B_idx]] = 1
 

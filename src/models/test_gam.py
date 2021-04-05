@@ -341,8 +341,8 @@ class TestTemporalEdge(unittest.TestCase):
         tgt_adj[:, 0, 1] = 1
         tgt_adj[:, 1, 0] = 1
         # Also add self edges
-        if torch.any(tgt_adj != self.adj):
-            self.fail(f"{tgt_adj} != {self.adj}")
+        if torch.any(tgt_adj != adj):
+            self.fail(f"{tgt_adj} != {adj}")
 
 
 class TestDistanceEdge(unittest.TestCase):
@@ -465,6 +465,19 @@ class TestBernoulliEdge(unittest.TestCase):
         )
         self.assertTrue(adj.grad_fn, "Adj has no gradient")
         self.assertTrue(weights.grad_fn, "Weight has no gradient")
+
+    def test_backwards(self):
+        nodes, adj, weights, num_nodes = (
+            self.nodes,
+            self.adj,
+            self.weights,
+            self.num_nodes,
+        )
+        self.s.edge_selectors[0].zero_grad()
+        nodes = torch.rand_like(self.nodes) * 0.00001
+        adj, weights = self.s.edge_selectors[0](nodes, adj, weights, num_nodes, 5)
+        adj.mean().backward()
+        self.optimizer.step()
 
 
 if __name__ == "__main__":
