@@ -54,6 +54,13 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Methodologies for building edges
         # can be [temporal, dense, knn-mse, knn-cos]
         "edge_selectors": [],
+        # If the spatial edge should be applied before the edge_selectors
+        # are called
+        "spatial_edge": False,
+        # Max distance in m
+        "spatial_edge_max_r": 0.5,
+        # Max rotation in rads
+        "spatial_edge_max_theta": 100,
         # Whether the prev action should be placed in the observation nodes
         "use_prev_action": True,
         # Add regularization loss based on weight matrix.
@@ -346,8 +353,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self, policy_loss: List[TensorType], loss_inputs: Dict[str, TensorType]
     ) -> List[TensorType]:
 
-        # if not any([isinstance(e, BernoulliEdge) for e in self.cfg["edge_selectors"]]):
-        #    return policy_loss
         if not self.cfg["regularize"]:
             return policy_loss
 
@@ -367,6 +372,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Regularization loss for bernoulli
         # Loss is meaned across batches
         reg_loss = self.cfg["regularization_coeff"] * edge_probs.mean()
-        print("Edgenet loss:", reg_loss, "total loss:", policy_loss[0])
+        # print('Edgenet loss:', reg_loss, "total loss:", policy_loss[0])
         policy_loss[0] = policy_loss[0] + reg_loss
         return policy_loss
