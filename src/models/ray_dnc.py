@@ -14,7 +14,8 @@ except ModuleNotFoundError:
 
 
 class DNCMemory(TorchModelV2, nn.Module):
-    """Differentiable Neural Computer"""
+    """Differentiable Neural Computer wrapper around ixaxaar's DNC implementation,
+    see https://github.com/ixaxaar/pytorch-dnc"""
 
     DEFAULT_CONFIG = {
         "dnc_model": DNC,
@@ -99,7 +100,8 @@ class DNCMemory(TorchModelV2, nn.Module):
         return self.cur_val
 
     def unpack_state(
-        self, state: List[TensorType], B: int, T: int
+        self,
+        state: List[TensorType],
     ) -> Tuple[List[Tuple[TensorType, TensorType]], Dict[str, TensorType], TensorType]:
         """Given a list of tensors, reformat for self.dnc input"""
         assert len(state) == 9, "Failed to verify unpacked state"
@@ -195,12 +197,8 @@ class DNCMemory(TorchModelV2, nn.Module):
                 flat, (ctrl_hidden, memory_dict, read_vecs)
             )
 
-            self.validate_unpack(
-                (ctrl_hidden, memory_dict, read_vecs), self.unpack_state(state, B, T)
-            )
-
         else:
-            ctrl_hidden, memory_dict, read_vecs = self.unpack_state(state, B, T)
+            ctrl_hidden, memory_dict, read_vecs = self.unpack_state(state)
             output, (ctrl_hidden, memory_dict, read_vecs) = self.dnc(
                 flat, (ctrl_hidden, memory_dict, read_vecs)
             )
