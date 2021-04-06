@@ -12,14 +12,14 @@ ARG PIP_NO_CACHE_DIR=1
 RUN cd /root/habitat-sim && pip3 install -r requirements.txt && python3 setup.py install --headless  --with-cuda --bullet
 
 # Install pytorch for example, and ensure sim works with all our required pkgs
-ARG TORCH=1.7.0
-ARG TORCHVISION=0.8.1
-ARG CUDA=cu110
+ARG TORCH=1.8.1
+ARG TORCHVISION=0.9.1
+ARG CUDA=cu111
 # Pytorch and torch_geometric w/ deps
 RUN pip3 install torch==${TORCH}+${CUDA} \
     torchvision==${TORCHVISION}+${CUDA} \ 
-    -f https://download.pytorch.org/whl/torch_stable.html \
-    torch-scatter torch-sparse torch-cluster torch-spline-conv \
+    -f https://download.pytorch.org/whl/torch_stable.html
+RUN pip3 install torch-scatter torch-sparse torch-cluster torch-spline-conv \
     -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html \
     torch_geometric
 #RUN cd /root/habitat-sim && python3 examples/example.py
@@ -56,4 +56,4 @@ RUN apt install -y unzip && \
 RUN ln -s /root/scene_datasets/mp3d /root/habitat-lab/data/scene_datasets
 
 # Dev tools
-RUN pip3 install pre-commit && cd /root/vnav && pre-commit && pre-commit install
+RUN pip3 install pre-commit && cd /root/vnav && pre-commit && pre-commit autoupdate && pre-commit install
