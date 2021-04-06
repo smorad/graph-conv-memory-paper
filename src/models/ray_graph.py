@@ -314,8 +314,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
         B = len(seq_lens)
         T = flat.shape[0] // B
 
-        logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
-        values = torch.zeros(B, T, 1, device=flat.device)
+        # logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
+        # values = torch.zeros(B, T, 1, device=flat.device)
+        outs = torch.zeros(B, T, self.cfg["gcn_hidden_size"], device=flat.device)
         # Deconstruct batch into batch and time dimensions: [B, T, feats]
         flat = torch.reshape(flat, [-1, T] + list(flat.shape[1:]))
         nodes, adj_mats, weights, num_nodes = state
@@ -327,18 +328,17 @@ class RayObsGraph(TorchModelV2, nn.Module):
         hidden = (nodes, adj_mats, weights, num_nodes)
         for t in range(T):
             out, hidden = self.gam(flat[:, t, :], hidden)
+            outs[:, t, :] = out
 
-            # Outputs
-            logits[:, t] = self.logit_branch(out)
-            values[:, t] = self.value_branch(out)
+        # Collapse batch and time for more efficient forward
+        out_view = outs.view(B * T, self.cfg["gcn_hidden_size"])
+        logits = self.logit_branch(out_view)
+        values = self.value_branch(out_view)
 
+        self.add_grad_dot(logits, "final_logits")
         self.adj_heatmap(hidden[1])
         self.report_densities(hidden[1], hidden[2])
         # self.pose_adj_scatter(hidden[1], hidden[-1])
-
-        logits = logits.reshape((B * T, self.num_outputs))
-        self.add_grad_dot(logits, "final_logits")
-        values = values.reshape((B * T, 1))
 
         self.cur_val = values.squeeze(1)
         self.fwd_iters += 1
