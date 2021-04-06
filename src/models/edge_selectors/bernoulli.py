@@ -55,17 +55,17 @@ class BernoulliEdge(torch.nn.Module):
         Returns a modified copy of the weight matrix containing edge probs"""
 
         B_idx = torch.arange(B)
-        N = nodes.shape[1]
+        n = torch.max(num_nodes) + 1
         feat = nodes.shape[-1]
 
-        left_nodes = torch.stack([nodes[B_idx, num_nodes[B_idx]]] * N, dim=1)
-        right_nodes = nodes
+        left_nodes = torch.stack([nodes[B_idx, num_nodes[B_idx]]] * n, dim=1)
+        right_nodes = nodes[:, :n, :]
         edge_net_in = torch.cat((left_nodes, right_nodes), dim=-1)
         # Edge network expects [B, feat] but we have [B, N, feat]
         # so flatten to [B, feat] for big perf gainz and unflatten
-        batch_in = edge_net_in.view(B * N, 2 * feat)
+        batch_in = edge_net_in.view(B * n, 2 * feat)
         batch_out = self.edge_network(batch_in)
-        probs = batch_out.view(B, N)
+        probs = batch_out.view(B, n)
 
         # Undirected edges
         # TODO: This is not equivariant as nn(a,b) != nn(b,a), run both dirs thru
