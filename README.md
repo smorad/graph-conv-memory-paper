@@ -23,10 +23,10 @@ export SCENE_DATASET_PATH=/local/scratch/sm2558/scene_datasets
 docker run \
     --gpus all \
     --shm-size 32g \
-    -p 8265:8299 # Ray \
+    -p 8299:8265 # Ray \
     -p 5000:5000 # Render server \
     -p 5050:5050 # Visdom \
-    -p 6006:6099 # Tensorboard \
+    -p 6099:6006 # Tensorboard \
     -v ${SCENE_DATASET_PATH}:/root/scene_datasets \
     -ti ray_habitat:latest bash
 
