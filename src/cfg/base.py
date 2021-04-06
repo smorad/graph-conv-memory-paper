@@ -1,6 +1,7 @@
 import os
 
 from ray.rllib.agents.impala import ImpalaTrainer
+from ray.rllib.agents.ppo import PPOTrainer
 from ray.tune import register_env
 
 from preprocessors.compass_fix import CompassFix
@@ -71,13 +72,16 @@ CFG = {
         "rollout_fragment_length": 256,
         # Total number of timesteps to train per batch
         "train_batch_size": 1024,
-        "lr": 0.001,
+        "lr": 0.0015,
         # Entropy 0.005 worked well for LSTM and MLP
         # As well as lr 0.001 and vtrace: True
         "entropy_coeff": 0.001,
+        # "entropy_coeff": 0.00005,
         "env": NavEnv.__name__,
         "callbacks": CustomMetrics,
-        "num_sgd_iter": 1,
+        # "num_sgd_iter": 5,
+        "replay_proportion": 1.0,
+        "replay_buffer_num_slots": 32,
         # "placement_strategy": "SPREAD",
         # For evaluation
         # How many epochs/train iters
@@ -85,7 +89,6 @@ CFG = {
         # "evaluation_num_episodes": 10,
         # "evaluation_config": val_env_cfg,
         # "evaluation_num_workers": 1, # Must be >0 to get OpenGL
-        # "vtrace": False,
     },
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},

@@ -43,13 +43,13 @@ CFG = {
             "custom_model": RGBDRayVAE,
             "custom_model_config": {
                 "z_dim": 128,  # grid_search([32, 64, 256]),
-                "depth_weight": 1.0,
+                "depth_weight": 2.0,
                 "rgb_weight": 1.0,
                 "elbo_beta": 0.5,
             },
         },
-        "num_workers": 18,
-        "num_cpus_per_worker": 4,
+        "num_workers": 12,
+        "num_cpus_per_worker": 2,
         # Total GPU usage: num_gpus (trainer proc) + num_gpus_per_worker (workers)
         "num_gpus_per_worker": 0.15,
         # this corresponds to the number of learner GPUs used,
@@ -58,8 +58,8 @@ CFG = {
         # Size of batches (in timesteps) placed in the learner queue
         "rollout_fragment_length": 256,
         # Total number of timesteps to train per batch
-        "train_batch_size": 2048,
-        "lr": 0.001,
+        "train_batch_size": 1024,
+        "lr": 0.01,
         "env": NavEnv,
         "callbacks": VAEMetrics,
     },
