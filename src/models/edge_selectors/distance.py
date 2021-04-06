@@ -49,3 +49,17 @@ class CosineEdge(Distance):
     def dist_fn(self, a, b):
         a = torch.cat([a.unsqueeze(1)] * b.shape[1], dim=1)
         return self.cs(a, b)
+
+
+class SpatialEdge(Distance):
+    """Euclidean distance representing the physical distance between two observations"""
+
+    def __init__(self, max_distance, pose_slice):
+        super().__init__(max_distance)
+        self.pose_slice = pose_slice
+
+    def dist_fn(self, a, b):
+        a = torch.cat([a.unsqueeze(1)] * b.shape[1], dim=1)
+        ra = a[:, :, self.pose_slice]
+        rb = b[:, :, self.pose_slice]
+        return torch.cdist(ra, rb).mean(dim=1)
