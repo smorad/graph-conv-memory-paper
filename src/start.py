@@ -58,6 +58,13 @@ def get_args():
         help="Resume training after interruption, using the top-level dir in ~/ray_results (e.g. IMPALA_2021-03-06_11-59-34",
     )
     parser.add_argument(
+        "--resume-error",
+        default=None,
+        type=str,
+        help="Resume training after interruption, using the top-level dir in ~/ray_results (e.g. IMPALA_2021-03-06_11-59-34. This mode will retry failed trials only.",
+    )
+
+    parser.add_argument(
         "--profile",
         action="store_true",
         help="Use torch profiler to measure gpu usage over a trial",
@@ -107,6 +114,8 @@ def train(args, cfg):
     if goal_metric["mode"] == "min":
         cpt_metric = "min-" + cpt_metric
 
+    resume = args.resume_error or args.resume
+
     if args.profile:
         prof = profiler.profile(record_shapes=True, profile_memory=True)
         prof.__enter__()
@@ -124,8 +133,9 @@ def train(args, cfg):
         checkpoint_at_end=True,
         metric=goal_metric["metric"],
         mode=goal_metric["mode"],
-        resume=bool(args.resume),
-        name=args.resume,
+        resume=bool(resume),
+        run_errored_only=bool(args.resume_error),
+        name=resume,
         log_to_file=True,
     )
 
@@ -145,9 +155,6 @@ def export_torch(args, cfg):
     )
     # Don't load multiple envs for the sake of time
     cfg["ray"]["num_workers"] = 0
-    cfg["ray"]["env_config"][
-        "hab_cfg_path"
-    ] = f"{os.path.abspath(os.path.dirname(__file__))}/cfg/objectnav_mp3d_train_val_mini.yaml"
     train = cfg["ray_trainer"](env=cfg["ray"]["env"], config=cfg["ray"])
     train.restore(args.export_torch[0])
     torch.save(train.get_policy().model, args.export_torch[1])
@@ -206,8 +213,6 @@ def evaluate(args, cfg):
 
 
 def human(args, cfg, act_q, resp_q):
-    # env_class = util.load_class(cfg, "env_wrapper")
-    # env = env_class(cfg=cfg["ray"]["env_config"])
     env = cfg["human_env"](cfg=cfg["ray"]["env_config"])
     ep = 0
     done = False
