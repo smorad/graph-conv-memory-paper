@@ -89,6 +89,26 @@ def load_master_cfg(path):
     return cfg_mod.CFG
 
 
+def get_trial_str(trial):
+    env = trial.config["env"]
+    edge_selectors = (
+        trial.config["model"].get("custom_model_config", {}).get("edge_selectors", None)
+    )
+    if edge_selectors:
+        edge_selectors = [e.__class__.__name__ for e in edge_selectors]
+
+    custom_model = trial.config["model"].get("custom_model", None)
+    if custom_model:
+        custom_model = custom_model.__name__
+
+    if custom_model and edge_selectors:
+        model = "_".join([custom_model, *edge_selectors])
+    else:
+        model = trial.config["model"]
+
+    return f"{env}-{trial.trial_id}-{model}"
+
+
 def train(args, cfg):
     ray.init(
         dashboard_host="0.0.0.0",
@@ -123,6 +143,7 @@ def train(args, cfg):
     analysis = tune.run(
         cfg["ray_trainer"],
         config=cfg["ray"],
+        trial_name_creator=get_trial_str,
         search_alg=search_alg,
         num_samples=num_samples,
         progress_reporter=reporter,
