@@ -10,7 +10,7 @@ class CustomMetrics(DefaultCallbacks):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.visdom = visdom.Visdom("http://localhost", port=5000)
+        self.visdom = visdom.Visdom("http://localhost", port=5050)
         self.train_iters = 0
 
     def on_episode_end(self, worker, base_env, policies, episode, env_index, **kwargs):
@@ -66,7 +66,7 @@ class GraphMetrics(DefaultCallbacks, CustomMetrics):
 class VAEMetrics(DefaultCallbacks):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.visdom = visdom.Visdom("http://localhost", port=5000)
+        self.visdom = visdom.Visdom("http://localhost", port=5050)
         self.window_map = {}
 
     def on_train_result(self, *, trainer, result, **kwargs) -> None:

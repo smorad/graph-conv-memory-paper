@@ -1,4 +1,5 @@
 import torch
+import time
 import torch.autograd.profiler as profiler
 import numpy as np
 import gym
@@ -119,7 +120,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.grad_dots: Dict[str, Any] = {}
         self.visdom_mets: Dict[str, Dict[str, np.ndarray]] = {}
         # if self.cfg["export_gradients"]:
-        self.visdom = visdom.Visdom("http://localhost", port=5000)
+        self.visdom = visdom.Visdom("http://localhost", port=5050)
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
@@ -347,6 +348,12 @@ class RayObsGraph(TorchModelV2, nn.Module):
         state = list(hidden)
         self.export_dots()
 
+        """
+        if time.time() - start < 10:
+            print('Slowdown detected, flushing cache')
+            torch.cuda.ipc_collect()
+            torch.cuda.empty_cache()
+        """
         return logits, state
 
     def custom_loss(
