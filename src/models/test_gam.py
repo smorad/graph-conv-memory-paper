@@ -3,7 +3,7 @@ import torch
 from gam import GNN, DenseGAM
 import torch_geometric
 from edge_selectors.temporal import TemporalBackedge
-from edge_selectors.distance import EuclideanEdge, CosineEdge
+from edge_selectors.distance import EuclideanEdge, CosineEdge, SpatialEdge
 from edge_selectors.dense import DenseEdge
 from edge_selectors.bernoulli import BernoulliEdge
 import torchviz
@@ -24,12 +24,14 @@ class TestDenseGAME2E(unittest.TestCase):
         )
         for layer in self.g.layers:
             if layer.__class__ == self.g.conv_type:
-                layer.lin_root.weight[:] = torch.diag(
-                    torch.ones(layer.lin_root.weight.shape[-1])
+                layer.lin_root.weight = torch.nn.Parameter(
+                    torch.diag(torch.ones(layer.lin_root.weight.shape[-1]))
                 )
-                layer.lin_root.bias[:] = 0.0
-                layer.lin_rel.weight[:] = torch.diag(
-                    torch.ones(layer.lin_root.weight.shape[-1])
+                layer.lin_root.bias = torch.nn.Parameter(
+                    torch.zeros_like(layer.lin_root.bias)
+                )
+                layer.lin_rel.weight = torch.nn.Parameter(
+                    torch.diag(torch.ones(layer.lin_root.weight.shape[-1]))
                 )
         self.s = DenseGAM(self.g)
 
@@ -365,8 +367,6 @@ class TestDistanceEdge(unittest.TestCase):
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
         tgt_adj = torch.zeros_like(adj, dtype=torch.long)
-        # It adds self edge
-        tgt_adj[:, 1, 1] = 1
         tgt_adj[:, 0, 1] = 1
         tgt_adj[:, 1, 0] = 1
 
@@ -382,7 +382,6 @@ class TestDistanceEdge(unittest.TestCase):
         )
         tgt_adj = torch.zeros_like(adj, dtype=torch.long)
         # Adds self edge
-        tgt_adj[:, 1, 1] = 1
         if torch.any(tgt_adj != adj):
             self.fail(f"{tgt_adj} != {self.adj}")
 
@@ -478,6 +477,51 @@ class TestBernoulliEdge(unittest.TestCase):
         adj, weights = self.s.edge_selectors[0](nodes, adj, weights, num_nodes, 5)
         adj.mean().backward()
         self.optimizer.step()
+
+
+class TestSpatialEdge(unittest.TestCase):
+    def setUp(self):
+        feats = 11
+        batches = 5
+        N = 10
+        self.g = GNN(feats, feats)
+        self.slice = slice(0, 2)
+        self.s = DenseGAM(self.g, edge_selectors=[SpatialEdge(1, self.slice)])
+
+        self.nodes = torch.zeros(batches, N, feats, dtype=torch.float)
+        self.obs = torch.zeros(batches, feats)
+        self.adj = torch.zeros(batches, N, N, dtype=torch.float)
+        self.weights = torch.ones(batches, N, N)
+        self.num_nodes = torch.ones(batches, dtype=torch.long)
+
+    def test_zero_dist(self):
+        # Start num_nodes = 1
+        self.nodes[:] = 1
+        self.nodes[:, 0:2, self.slice] = 0
+        _, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        tgt_adj = torch.zeros_like(adj, dtype=torch.long)
+        # It adds self edge
+        tgt_adj[:, 0, 1] = 1
+        tgt_adj[:, 1, 0] = 1
+
+        # TODO: Ensure not off by one
+        if torch.any(tgt_adj != adj):
+            self.fail(f"{tgt_adj} != {adj}")
+
+    def test_one_dist(self):
+        # Start num_nodes = 1
+        self.nodes[:, 0, self.slice] = 1
+        _, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        tgt_adj = torch.zeros_like(adj, dtype=torch.long)
+        # It adds self edge
+
+        # TODO: Ensure not off by one
+        if torch.any(tgt_adj != adj):
+            self.fail(f"{tgt_adj} != {adj}")
 
 
 if __name__ == "__main__":

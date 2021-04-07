@@ -4,12 +4,12 @@ repos:
     hooks:
     - id: black
       language_version: python3.8.5
--   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v1.2.3
+-   repo: https://github.com/pycqa/flake8 #https://github.com/pre-commit/pre-commit-hooks
+    rev: 3.9.0
     hooks:
     - id: flake8
 -   repo: https://github.com/pre-commit/mirrors-mypy
-    rev: '6fd7e2a39e5a8f7c7b14ddcc5290ef69b0c446db'  # Use the sha / tag you want to point at
+    rev: 'v0.812'  # Use the sha / tag you want to point at
     hooks:
     -   id: mypy
         args: [--no-strict-optional, --ignore-missing-imports]

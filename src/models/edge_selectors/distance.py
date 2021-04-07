@@ -13,13 +13,12 @@ class Distance(torch.nn.Module):
         """Connect current obs to past obs based on distance of the node features"""
         B_idx = torch.arange(B)
         curr_nodes = nodes[B_idx, num_nodes[B_idx].squeeze()]
-        # TODO: Only do distance up to nodes[num_nodes] so we don't compare
-        # to zero entries
-        # comp_nodes = torch.arange(num_nodes[B_idx])
         dists = self.dist_fn(curr_nodes, nodes)
         batch_idxs, node_idxs = torch.where(dists < self.max_distance)
         # Remove entries beyond num_nodes
-        num_nodes_mask = node_idxs <= num_nodes[batch_idxs]
+        # as well as num_nodes because we don't want
+        # the self edge
+        num_nodes_mask = node_idxs < num_nodes[batch_idxs]
         batch_idxs = batch_idxs.masked_select(num_nodes_mask)
         node_idxs = node_idxs.masked_select(num_nodes_mask)
 
