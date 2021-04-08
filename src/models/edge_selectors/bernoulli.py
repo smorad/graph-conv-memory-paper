@@ -9,14 +9,14 @@ class BernoulliEdge(torch.nn.Module):
     """Add temporal bidirectional back edge, but only if we have >1 nodes
     E.g., node_{t} <-> node_{t-1}"""
 
-    def __init__(self, input_size: int = 0, model: torch.nn.Sequential = None):
+    def __init__(self, model: torch.nn.Sequential = None):
         super().__init__()
-        assert input_size or model, "Must specify either input_size or model"
         if model:
             self.edge_network = model
         else:
-            self.edge_network = self.build_edge_network(input_size)
+            self.edge_network = None
         self.metrics: Dict[str, np.ndarray] = {}
+        self.density = 0
 
     def sample_random_var(self, p: torch.Tensor) -> torch.Tensor:
         """Given a probability [0,1] p, return a backprop-capable random sample"""
@@ -54,8 +54,13 @@ class BernoulliEdge(torch.nn.Module):
         """Computes edge probability between current node and all other nodes.
         Returns a modified copy of the weight matrix containing edge probs"""
 
+        # No edges for a single node
+        if torch.max(num_nodes) == 0:
+            return weights.clamp(0.0001, 0.9999)
+
         B_idx = torch.arange(B)
-        n = torch.max(num_nodes) + 1
+        n = torch.max(num_nodes)
+        # N = nodes.shape[1]
         feat = nodes.shape[-1]
 
         left_nodes = torch.stack([nodes[B_idx, num_nodes[B_idx]]] * n, dim=1)
@@ -65,7 +70,7 @@ class BernoulliEdge(torch.nn.Module):
         # so flatten to [B, feat] for big perf gainz and unflatten
         batch_in = edge_net_in.view(B * n, 2 * feat)
         batch_out = self.edge_network(batch_in)
-        probs = batch_out.view(B, n)
+        probs = batch_out.view(B, n).clamp(0.0001, 0.9999)
 
         # Undirected edges
         # TODO: This is not equivariant as nn(a,b) != nn(b,a), run both dirs thru
@@ -77,8 +82,13 @@ class BernoulliEdge(torch.nn.Module):
             # This does NOT add self edge [num_nodes[b], num_nodes[b]]
             weights[b, num_nodes[b], : num_nodes[b]] = probs[b][: num_nodes[b]]
             weights[b, : num_nodes[b], num_nodes[b]] = probs[b][: num_nodes[b]]
+            self.density = self.density + probs[b][: num_nodes[b]].mean()
 
-        return weights.clamp(0.0001, 0.9999)
+        # Nx2 possible rows
+        # self.density = self.density + 2 * batch_out.sum() / ((num_nodes + 1) * 2).sum()
+        # probs[b][: num_nodes[b]].sum()
+
+        return weights
 
     def forward(self, nodes, adj, weights, num_nodes, B):
         """A(i,j) = Ber[phi(i || j), e]
@@ -89,6 +99,8 @@ class BernoulliEdge(torch.nn.Module):
 
         # a(b,i,j) = gumbel_softmax(phi(n(b,i) || n(b,j))) for i, j < num_nodes
         # First run
+        if not self.edge_network:
+            self.edge_network = self.build_edge_network(nodes.shape[-1])
         if self.edge_network[0].weight.device != nodes.device:
             self.edge_network = self.edge_network.to(nodes.device)
 

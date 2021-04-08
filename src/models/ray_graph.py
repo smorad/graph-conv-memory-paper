@@ -55,13 +55,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Methodologies for building edges
         # can be [temporal, dense, knn-mse, knn-cos]
         "edge_selectors": [],
-        # If the spatial edge should be applied before the edge_selectors
-        # are called
-        "spatial_edge": False,
-        # Max distance in m
-        "spatial_edge_max_r": 0.5,
-        # Max rotation in rads
-        "spatial_edge_max_theta": 100,
         # Whether the prev action should be placed in the observation nodes
         "use_prev_action": True,
         # Add regularization loss based on weight matrix.
@@ -69,7 +62,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         # Note: The way rllib does backprop makes this quite slow
         # it requires another forward pass through the edge network
         "regularize": False,
-        "regularization_coeff": 0.1,
+        "regularization_coeff": 1000,
         # Set to true using sparse conv layers and false for dense conv layers
         "sparse": False,
         # For debug visualization
@@ -254,9 +247,17 @@ class RayObsGraph(TorchModelV2, nn.Module):
             for k, v in self.grad_dots.items():
                 path = f"/tmp/{k}"
                 v.render(path, format="svg")
-                self.visdom.svg(svgfile=path + ".svg")
+                self.visdom.svg(svgfile=path + ".svg", opts={"caption": k, "title": k})
             print("Exported dots to visdom")
-            self.grad_dots.clear()
+
+    def get_num_comp_graph_nodes(self):
+        """Prints the number of nodes in the torch computational graph. Use
+        this to ensure we don't leak gradients from previous passes"""
+        if self.cfg["export_gradients"] and self.training:
+            for k, v in self.grad_dots.items():
+                self.visdom_mets["line"][
+                    k.split("_iter")[0] + "_comp_graph_nodes"
+                ] = np.array([len(v.body)])
 
     def adj_heatmap(self, adj):
         if self.training:
@@ -312,6 +313,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
             flat = input_dict["obs_flat"]
         # Batch and Time
         # Forward expects outputs as [B, T, logits]
+        self.device = flat.device
+        # print(seq_lens)
         B = len(seq_lens)
         T = flat.shape[0] // B
 
@@ -336,7 +339,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
         logits = self.logit_branch(out_view)
         values = self.value_branch(out_view)
 
-        self.add_grad_dot(logits, "final_logits")
+        self.add_grad_dot(logits, "logits")
+        self.add_grad_dot(hidden[1], "adj")
+        self.add_grad_dot(hidden[2], "weights")
         self.adj_heatmap(hidden[1])
         self.report_densities(hidden[1], hidden[2])
         # self.pose_adj_scatter(hidden[1], hidden[-1])
@@ -346,7 +351,10 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         # Old num_nodes shape
         state = list(hidden)
-        self.export_dots()
+        # self.export_dots()
+        self.get_num_comp_graph_nodes()
+        if self.training:
+            self.grad_dots.clear()
 
         """
         if time.time() - start < 10:
@@ -367,18 +375,19 @@ class RayObsGraph(TorchModelV2, nn.Module):
             e for e in self.cfg["edge_selectors"] if isinstance(e, BernoulliEdge)
         ]
 
-        # hidden = (nodes, adj_mats, weights, num_nodes)
-        (nodes, _, weights, num_nodes) = (
-            loss_inputs["state_out_0"],
-            loss_inputs["state_out_1"],
-            loss_inputs["state_out_2"],
-            loss_inputs["state_out_3"].long(),
-        )
-        edge_probs = bern_edge.compute_logits(nodes, num_nodes, weights, nodes.shape[0])
-        assert edge_probs.shape[1:] == (self.cfg["graph_size"], self.cfg["graph_size"])
-        # Regularization loss for bernoulli
-        # Loss is meaned across batches
-        reg_loss = self.cfg["regularization_coeff"] * edge_probs.mean()
-        # print('Edgenet loss:', reg_loss, "total loss:", policy_loss[0])
+        assert (
+            bern_edge.density.grad_fn
+        ), "Bernoulli network has no gradient, cannot learn"
+
+        # edge_probs = bern_edge.compute_logits(nodes, num_nodes, weights, nodes.shape[0])
+        # assert edge_probs.shape[1:] == (self.cfg["graph_size"], self.cfg["graph_size"])
+        # L_0 regularization loss for bernoulli
+        reg_loss = self.cfg["regularization_coeff"] * bern_edge.density.clone()
+        bern_edge.density = 0
+        self.add_grad_dot(reg_loss, "reg_loss")
+        print("Called custom_loss with reg_loss:", reg_loss)
+        # This wipes away row_sum grad as well
+        # bern_edge.row_sum.zero_()
+        # assert bern_edge.row_sum.grad_fn == None
         policy_loss[0] = policy_loss[0] + reg_loss
         return policy_loss

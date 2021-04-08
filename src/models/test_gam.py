@@ -433,7 +433,7 @@ class TestBernoulliEdge(unittest.TestCase):
         batches = 5
         N = 10
         self.g = GNN(input_size=feats, graph_size=N, hidden_size=feats, test="adj")
-        self.s = DenseGAM(self.g, edge_selectors=[BernoulliEdge(11)])
+        self.s = DenseGAM(self.g, edge_selectors=[BernoulliEdge()])
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -450,6 +450,11 @@ class TestBernoulliEdge(unittest.TestCase):
         out, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
+        # First run has no gradient as no edges to be made
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (nodes, adj, weights, num_nodes)
+        )
+
         loss = torch.norm(out)
         dot = torchviz.make_dot(loss, params=dict(self.s.named_parameters()))
         # Make sure gradients make it all the way thru node_feats
@@ -459,9 +464,11 @@ class TestBernoulliEdge(unittest.TestCase):
         out, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
-        adj, weights = self.s.edge_selectors[0](
-            self.nodes, self.adj, self.weights, self.num_nodes, 5
+        # First run has no gradient as no edges to be made
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (nodes, adj, weights, num_nodes)
         )
+        adj, weights = self.s.edge_selectors[0](nodes, adj, weights, num_nodes, 5)
         self.assertTrue(adj.grad_fn, "Adj has no gradient")
         self.assertTrue(weights.grad_fn, "Weight has no gradient")
 
@@ -472,11 +479,51 @@ class TestBernoulliEdge(unittest.TestCase):
             self.weights,
             self.num_nodes,
         )
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (nodes, adj, weights, num_nodes)
+        )
         self.s.edge_selectors[0].zero_grad()
         nodes = torch.rand_like(self.nodes) * 0.00001
         adj, weights = self.s.edge_selectors[0](nodes, adj, weights, num_nodes, 5)
         adj.mean().backward()
         self.optimizer.step()
+
+    def test_reg_loss(self):
+        feats = 11
+        batches = 5
+        T = 4
+        N = 10
+        losses = []
+        for i in range(20):
+            nodes = torch.arange(batches * N * feats, dtype=torch.float).reshape(
+                batches, N, feats
+            )
+            obs = torch.ones(batches, feats)
+            adj = torch.zeros(batches, N, N, dtype=torch.long)
+            weights = torch.ones(batches, N, N)
+            num_nodes = torch.zeros(batches, dtype=torch.long)
+
+            if i == 0:
+                continue
+
+            hidden = (nodes, adj, weights, num_nodes)
+            for t in range(T):
+                obs, hidden = self.s(obs, hidden)
+
+            loss = self.s.edge_selectors[0].density
+            loss.backward()
+            losses.append(loss)
+
+            self.optimizer.step()
+            # Must zero grad AND reset density
+            self.optimizer.zero_grad()
+            self.s.edge_selectors[0].density = 0
+            # self.s.edge_selectors[0].density.zero_()
+            # loss.grad.zero_()
+            # self.optimizer.zero_grad()
+
+        if not losses[-1] < losses[0]:
+            self.fail(f"Final loss {losses[-1]} not better than init loss {losses[0]}")
 
 
 class TestSpatialEdge(unittest.TestCase):
