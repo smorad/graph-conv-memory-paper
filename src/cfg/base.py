@@ -85,10 +85,10 @@ CFG = {
         # "placement_strategy": "SPREAD",
         # For evaluation
         # How many epochs/train iters
-        # "evaluation_interval": 10,
-        # "evaluation_num_episodes": 10,
-        # "evaluation_config": val_env_cfg,
-        # "evaluation_num_workers": 1, # Must be >0 to get OpenGL
+        "evaluation_interval": 2,
+        "evaluation_num_episodes": 10,
+        "evaluation_config": val_env_cfg,
+        "evaluation_num_workers": 1,  # Must be >0 to get OpenGL
     },
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
