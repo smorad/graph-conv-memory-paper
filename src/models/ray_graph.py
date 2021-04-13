@@ -51,7 +51,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
         "gcn_conv_type": torch_geometric.nn.DenseGCNConv,
         # Activation function for GNN layers
         "gcn_act_type": torch.nn.Tanh,  # torch.nn.ReLU,
-        "use_batch_norm": False,
         # Methodologies for building edges
         # can be [temporal, dense, knn-mse, knn-cos]
         "edge_selectors": [],
@@ -59,11 +58,9 @@ class RayObsGraph(TorchModelV2, nn.Module):
         "use_prev_action": True,
         # Add regularization loss based on weight matrix.
         # This only makes sense if using the BernoulliEdge.
-        # Note: The way rllib does backprop makes this quite slow
-        # it requires another forward pass through the edge network
         "regularize": False,
-        "regularization_coeff": 1000,
-        # Set to true using sparse conv layers and false for dense conv layers
+        "regularization_coeff": 0.001,
+        # Set to true use sparse conv layers and false for dense conv layers
         "sparse": False,
         # For debug visualization
         "export_gradients": False,
@@ -351,7 +348,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         # Old num_nodes shape
         state = list(hidden)
-        # self.export_dots()
+        self.export_dots()
         self.get_num_comp_graph_nodes()
         if self.training:
             self.grad_dots.clear()
@@ -375,19 +372,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
             e for e in self.cfg["edge_selectors"] if isinstance(e, BernoulliEdge)
         ]
 
-        assert (
-            bern_edge.density.grad_fn
-        ), "Bernoulli network has no gradient, cannot learn"
-
-        # edge_probs = bern_edge.compute_logits(nodes, num_nodes, weights, nodes.shape[0])
-        # assert edge_probs.shape[1:] == (self.cfg["graph_size"], self.cfg["graph_size"])
         # L_0 regularization loss for bernoulli
-        reg_loss = self.cfg["regularization_coeff"] * bern_edge.density.clone()
-        bern_edge.density = 0
+        reg_loss = self.cfg["regularization_coeff"] * bern_edge.detach_loss()
         self.add_grad_dot(reg_loss, "reg_loss")
-        print("Called custom_loss with reg_loss:", reg_loss)
-        # This wipes away row_sum grad as well
-        # bern_edge.row_sum.zero_()
-        # assert bern_edge.row_sum.grad_fn == None
         policy_loss[0] = policy_loss[0] + reg_loss
         return policy_loss
