@@ -433,7 +433,7 @@ class TestBernoulliEdge(unittest.TestCase):
         batches = 5
         N = 10
         self.g = GNN(input_size=feats, graph_size=N, hidden_size=feats, test="adj")
-        self.s = DenseGAM(self.g, edge_selectors=[BernoulliEdge()])
+        self.s = DenseGAM(self.g, edge_selectors=[BernoulliEdge(feats)])
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -510,17 +510,13 @@ class TestBernoulliEdge(unittest.TestCase):
             for t in range(T):
                 obs, hidden = self.s(obs, hidden)
 
-            loss = self.s.edge_selectors[0].density
+            loss = self.s.edge_selectors[0].compute_full_loss(nodes, nodes.shape[0])
             loss.backward()
             losses.append(loss)
 
             self.optimizer.step()
             # Must zero grad AND reset density
             self.optimizer.zero_grad()
-            self.s.edge_selectors[0].density = 0
-            # self.s.edge_selectors[0].density.zero_()
-            # loss.grad.zero_()
-            # self.optimizer.zero_grad()
 
         if not losses[-1] < losses[0]:
             self.fail(f"Final loss {losses[-1]} not better than init loss {losses[0]}")
