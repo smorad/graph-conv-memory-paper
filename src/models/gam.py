@@ -5,12 +5,16 @@ from typing import List, Tuple, Union, Any, Dict, Callable
 import time
 
 
+@torch.jit.script
+def overflow(num_nodes: torch.Tensor, N: int):
+    return torch.any(num_nodes + 1 >= N)
+
+
 class GNN(torch.nn.Module):
     def hidden_block(self, hidden_size, activation, conv_type, attn_heads):
         return [
             conv_type(hidden_size, hidden_size),
             activation(),
-            # torch_geometric.nn.BatchNorm(hidden_size),
         ]
 
     def __init__(
@@ -21,7 +25,7 @@ class GNN(torch.nn.Module):
         num_layers: int = 2,
         attn_heads: int = 1,
         conv_type: torch_geometric.nn.MessagePassing = torch_geometric.nn.DenseGCNConv,
-        activation: torch.nn.Module = torch.nn.Tanh,  # torch.nn.ReLU,
+        activation: torch.nn.Module = torch.nn.Tanh,
         sparse: bool = False,
         test: Union[str, None] = None,
         # None means use default init for layer
@@ -175,7 +179,8 @@ class DenseGAM(torch.nn.Module):
             N == adj.shape[1] == adj.shape[2]
         ), "N must be equal for adj mat and node mat"
 
-        if torch.any(num_nodes + 1 >= N):
+        if overflow(num_nodes, N):
+            # if torch.any(num_nodes + 1 >= N):
             print(
                 f"Warning, ran out of graph space (N={N}, t={num_nodes.max() + 1}). Overwriting node matrix"
             )
