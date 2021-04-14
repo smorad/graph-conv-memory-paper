@@ -1,8 +1,45 @@
 import torch
 import itertools
 from ray.rllib.utils.typing import TensorType
-from typing import Dict
+from typing import Dict, Tuple, List
 import numpy as np
+
+
+@torch.jit.script
+def up_to_num_nodes_idxs(
+    adj: torch.Tensor, num_nodes: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Given num_nodes, returns idxs from adj
+    up to but not including num_nodes. I.e.
+    (batches, 0:num_nodes, num_nodes]"""
+    seq_lens = num_nodes.unsqueeze(-1)
+    N = adj.shape[-1]
+    N_idx = torch.arange(N, device=adj.device).unsqueeze(0)
+    N_idx = N_idx.expand(seq_lens.shape[0], N_idx.shape[1])
+    # Do not include the current node
+    N_idx = torch.nonzero(N_idx < num_nodes.unsqueeze(1))
+    assert N_idx.shape[-1] == 2
+    batch_idxs = N_idx[:, 0]
+    i_idxs = N_idx[:, 1]
+    j_idxs = num_nodes[batch_idxs]
+
+    return batch_idxs, i_idxs, j_idxs
+
+
+@torch.jit.script
+def sample_hard(x: torch.Tensor, clamp_range: Tuple[float, float]) -> torch.Tensor:
+    """
+    Randomly sample a Bernoulli distribution and return the argmax.
+    E.g. sample_hard(torch.tensor([0.4, 0.99, 0]) will likely return
+    either [0, 1, 0] or [1, 1, 0]. Note that the inputs are expected to
+    be probabilities and are clamped to self.clamp_range for numerical
+    stability.
+
+    This uses the gumbel_softmax trick to make argmax differentiable
+    """
+
+    res = torch.stack((1.0 - x, x), dim=0).clamp(*clamp_range)
+    return torch.nn.functional.gumbel_softmax(torch.log(res), hard=True, dim=0)[1]
 
 
 class BernoulliEdge(torch.nn.Module):
@@ -13,13 +50,13 @@ class BernoulliEdge(torch.nn.Module):
         self,
         input_size: int = 0,
         model: torch.nn.Sequential = None,
-        clamp_range=[0.001, 0.999],
-        one_way_edges=True,
+        clamp_range=(0.001, 0.999),
+        backward_edges: bool = False,
     ):
+        self.clamp_range: Tuple[float] = clamp_range
+        self.backward_edges = backward_edges
         super().__init__()
         self.density = torch.tensor(0)
-        self.clamp_range = clamp_range
-        self.one_way_edges = one_way_edges
         assert input_size or model, "Must specify either input_size or model"
         if model:
             self.edge_network = model
@@ -34,20 +71,6 @@ class BernoulliEdge(torch.nn.Module):
         return torch.sigmoid(
             torch.log(e) - torch.log(1 - e) + torch.log(p) - torch.log(1 - p)
         )
-
-    def sample_hard(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Randomly sample a Bernoulli distribution and return the argmax.
-        E.g. sample_hard(torch.tensor([0.4, 0.99, 0]) will likely return
-        either [0, 1, 0] or [1, 1, 0]. Note that the inputs are expected to
-        be probabilities and are clamped to self.clamp_range for numerical
-        stability.
-
-        This uses the gumbel_softmax trick to make argmax differentiable
-        """
-
-        res = torch.stack((1.0 - x, x), dim=0).clamp(*self.clamp_range)
-        return torch.nn.functional.gumbel_softmax(torch.log(res), hard=True, dim=0)[1]
 
     def build_edge_network(self, input_size: int) -> torch.nn.Sequential:
         """Builds a network to predict edges.
@@ -90,23 +113,6 @@ class BernoulliEdge(torch.nn.Module):
         batch_out = self.edge_network(batch_in)
         return batch_out.mean()
 
-    def up_to_num_nodes_idxs(self, adj, num_nodes, B):
-        """Given num_nodes, returns idxs from adj
-        up to but not including num_nodes. I.e.
-        (batches, 0:num_nodes, num_nodes]"""
-        seq_lens = num_nodes.unsqueeze(-1)
-        N = adj.shape[-1]
-        N_idx = torch.arange(N, device=adj.device).unsqueeze(0)
-        N_idx = N_idx.expand(seq_lens.shape[0], N_idx.shape[1])
-        # Do not include the current node
-        N_idx = torch.nonzero(N_idx < num_nodes.unsqueeze(1))
-        assert N_idx.shape[-1] == 2
-        batch_idxs = N_idx[:, 0]
-        i_idxs = N_idx[:, 1]
-        j_idxs = num_nodes[batch_idxs]
-
-        return batch_idxs, i_idxs, j_idxs
-
     def compute_logits2(
         self,
         nodes: torch.Tensor,
@@ -120,20 +126,20 @@ class BernoulliEdge(torch.nn.Module):
         if torch.max(num_nodes) == 0:
             return weights.clamp(*self.clamp_range)
 
-        b_idxs, i_idxs, j_idx = self.up_to_num_nodes_idxs(weights, num_nodes, B)
+        b_idxs, i_idxs, j_idx = up_to_num_nodes_idxs(weights, num_nodes)
         left = nodes[b_idxs, j_idx]
         right = nodes[b_idxs, i_idxs]
 
         net_in = torch.cat((left, right), dim=-1)
         net_out = self.edge_network(net_in)
         probs = net_out.clamp(*self.clamp_range).squeeze()
-        weights[b_idxs, j_idx, i_idxs] = probs
+        weights[b_idxs, i_idxs, j_idx] = probs
         self.density = self.density + probs.mean()
 
-        if not self.one_way_edges:
+        if self.backward_edges:
             net_in = torch.cat((right, left), dim=-1)
             probs = net_out.clamp(*self.clamp_range).squeeze()
-            weights[b_idxs, i_idxs, j_idx] = probs
+            weights[b_idxs, j_idx, i_idxs] = probs
             self.density = self.density + probs.mean()
 
         return weights
@@ -173,13 +179,6 @@ class BernoulliEdge(torch.nn.Module):
         # TODO: Experiment with directed edges
         # TODO: Vectorize
         # TODO: Do not push all N nodes thru net, only push num_nodes
-        b_idxs, i_idxs, j_idxs = self.up_to_num_nodes_idxs(weights, num_nodes, B)
-        if not self.one_way_edges:
-            weights[b_idxs, i_idxs, j_idxs] = probs.squeeze()
-        weights[b_idxs, j_idxs, i_idxs] = probs.squeeze()
-        import pdb
-
-        pdb.set_trace()
         for b in B_idx:
             # This does NOT add self edge [num_nodes[b], num_nodes[b]]
             #
@@ -187,7 +186,7 @@ class BernoulliEdge(torch.nn.Module):
             # DenseGraphConv does Adj @ nodes
             # so A[i, j] corresponds to aggregating i when convolving
             # the jth row
-            if not self.one_way_edges:
+            if self.backward_edges:
                 weights[b, num_nodes[b], : num_nodes[b]] = probs[b][: num_nodes[b]]
             weights[b, : num_nodes[b], num_nodes[b]] = probs[b][: num_nodes[b]]
 
@@ -207,6 +206,6 @@ class BernoulliEdge(torch.nn.Module):
 
         # Weights serve as probabilities that we sample from
         weights = self.compute_logits2(nodes, num_nodes, weights, B)
-        adj = self.sample_hard(weights)
+        adj = sample_hard(weights, self.clamp_range)
 
         return adj, weights
