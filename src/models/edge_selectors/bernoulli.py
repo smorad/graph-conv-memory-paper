@@ -14,10 +14,12 @@ class BernoulliEdge(torch.nn.Module):
         input_size: int = 0,
         model: torch.nn.Sequential = None,
         clamp_range=[0.001, 0.999],
+        one_way_edges=True,
     ):
         super().__init__()
         self.density = torch.tensor(0)
         self.clamp_range = clamp_range
+        self.one_way_edges = one_way_edges
         assert input_size or model, "Must specify either input_size or model"
         if model:
             self.edge_network = model
@@ -88,6 +90,54 @@ class BernoulliEdge(torch.nn.Module):
         batch_out = self.edge_network(batch_in)
         return batch_out.mean()
 
+    def up_to_num_nodes_idxs(self, adj, num_nodes, B):
+        """Given num_nodes, returns idxs from adj
+        up to but not including num_nodes. I.e.
+        (batches, 0:num_nodes, num_nodes]"""
+        seq_lens = num_nodes.unsqueeze(-1)
+        N = adj.shape[-1]
+        N_idx = torch.arange(N, device=adj.device).unsqueeze(0)
+        N_idx = N_idx.expand(seq_lens.shape[0], N_idx.shape[1])
+        # Do not include the current node
+        N_idx = torch.nonzero(N_idx < num_nodes.unsqueeze(1))
+        assert N_idx.shape[-1] == 2
+        batch_idxs = N_idx[:, 0]
+        i_idxs = N_idx[:, 1]
+        j_idxs = num_nodes[batch_idxs]
+
+        return batch_idxs, i_idxs, j_idxs
+
+    def compute_logits2(
+        self,
+        nodes: torch.Tensor,
+        num_nodes: torch.Tensor,
+        weights: torch.Tensor,
+        B: int,
+    ):
+        """Computes edge probability between current node and all other nodes.
+        Returns a modified copy of the weight matrix containing edge probs"""
+        # No edges for a single node
+        if torch.max(num_nodes) == 0:
+            return weights.clamp(*self.clamp_range)
+
+        b_idxs, i_idxs, j_idx = self.up_to_num_nodes_idxs(weights, num_nodes, B)
+        left = nodes[b_idxs, j_idx]
+        right = nodes[b_idxs, i_idxs]
+
+        net_in = torch.cat((left, right), dim=-1)
+        net_out = self.edge_network(net_in)
+        probs = net_out.clamp(*self.clamp_range).squeeze()
+        weights[b_idxs, j_idx, i_idxs] = probs
+        self.density = self.density + probs.mean()
+
+        if not self.one_way_edges:
+            net_in = torch.cat((right, left), dim=-1)
+            probs = net_out.clamp(*self.clamp_range).squeeze()
+            weights[b_idxs, i_idxs, j_idx] = probs
+            self.density = self.density + probs.mean()
+
+        return weights
+
     def compute_logits(
         self,
         nodes: torch.Tensor,
@@ -115,8 +165,7 @@ class BernoulliEdge(torch.nn.Module):
         batch_in = edge_net_in.view(B * n, 2 * feat)
         batch_out = self.edge_network(batch_in)
         probs = batch_out.view(B, n).clamp(*self.clamp_range)
-        # print(probs.mean())
-        self.density = self.density + probs.mean()  # probs.sum() / num_nodes.sum()
+        self.density = self.density + probs.mean()
 
         # Undirected edges
         # TODO: This is not equivariant as nn(a,b) != nn(b,a), run both dirs thru
@@ -124,16 +173,23 @@ class BernoulliEdge(torch.nn.Module):
         # TODO: Experiment with directed edges
         # TODO: Vectorize
         # TODO: Do not push all N nodes thru net, only push num_nodes
+        b_idxs, i_idxs, j_idxs = self.up_to_num_nodes_idxs(weights, num_nodes, B)
+        if not self.one_way_edges:
+            weights[b_idxs, i_idxs, j_idxs] = probs.squeeze()
+        weights[b_idxs, j_idxs, i_idxs] = probs.squeeze()
+        import pdb
+
+        pdb.set_trace()
         for b in B_idx:
             # This does NOT add self edge [num_nodes[b], num_nodes[b]]
-            weights[b, num_nodes[b], : num_nodes[b]] = probs[b][: num_nodes[b]]
+            #
+            # For directed edges:
+            # DenseGraphConv does Adj @ nodes
+            # so A[i, j] corresponds to aggregating i when convolving
+            # the jth row
+            if not self.one_way_edges:
+                weights[b, num_nodes[b], : num_nodes[b]] = probs[b][: num_nodes[b]]
             weights[b, : num_nodes[b], num_nodes[b]] = probs[b][: num_nodes[b]]
-            # if num_nodes[b] > 0:
-            #    self.density = self.density + probs[b][: num_nodes[b]].mean()
-
-        # Nx2 possible rows
-        # self.density = self.density + 2 * batch_out.sum() / ((num_nodes + 1) * 2).sum()
-        # probs[b][: num_nodes[b]].sum()
 
         return weights
 
@@ -150,8 +206,7 @@ class BernoulliEdge(torch.nn.Module):
             self.edge_network = self.edge_network.to(nodes.device)
 
         # Weights serve as probabilities that we sample from
-        weights = self.compute_logits(nodes, num_nodes, weights, B)
-        # sample = self.sample_random_var(weights)
+        weights = self.compute_logits2(nodes, num_nodes, weights, B)
         adj = self.sample_hard(weights)
 
         return adj, weights
