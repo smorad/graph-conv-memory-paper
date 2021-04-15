@@ -47,6 +47,7 @@ class DepthRayVAE(TorchModelV2, DepthVAE):
         )
         batch = input_dict["obs_flat"].shape[0]
         device = input_dict["obs_flat"].device
+        self.device = device
         self._curr_value = torch.zeros((batch,), device=device)
         out = torch.zeros((batch, self.act_space), device=device)
 

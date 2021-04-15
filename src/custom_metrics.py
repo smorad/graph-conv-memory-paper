@@ -1,4 +1,5 @@
 from ray.rllib.agents.callbacks import DefaultCallbacks
+from typing import Dict
 import ray
 import visdom
 import numpy as np
@@ -88,6 +89,7 @@ class EvalMetrics(CustomMetrics):
     EVAL_METRICS = [
         "latent",
         "gps",
+        "compass",
         "map",
         "action_prob",
         "forward_edges",
@@ -117,6 +119,7 @@ class EvalMetrics(CustomMetrics):
 
     def on_episode_step(self, *, worker, base_env, episode, env_index: int, **kwargs):
         episode.user_data["gps"].append(episode.last_raw_obs_for()["gps"])
+        episode.user_data["compass"].append(episode.last_raw_obs_for()["compass"])
         episode.user_data["latent"].append(episode.last_raw_obs_for()["vae"])
         if episode.length > 0:
             episode.user_data["forward_edges"].append(
@@ -132,40 +135,60 @@ class EvalMetrics(CustomMetrics):
             pass
 
 
-"""
-class GraphMetrics(DefaultCallbacks, CustomMetrics):
-    def on_train_result(self, *, trainer, result, **kwargs) -> None:
-        m = trainer.get_policy().model
-        metrics = {
-            "graph_density": m.density,
-        }
-        result["custom_metrics"].update(metrics)
-"""
-
-
 class VAEMetrics(DefaultCallbacks):
+    PREFIX = ""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.visdom = visdom.Visdom("http://localhost", port=5050)
         self.window_map = {}
 
-    def on_train_result(self, *, trainer, result, **kwargs) -> None:
-        m = trainer.get_policy().model
-        losses = {
+    def get_losses(self, m):
+        return {
             "ae_semantic_loss": m.sem_loss.detach().item(),
             "ae_depth_loss": m.depth_loss.detach().item(),
             "ae_kld_loss": m.kld_loss.detach().item(),
             "ae_combined_loss": m.combined_loss.detach().item(),
         }
-        result["custom_metrics"].update(losses)
+
+    def log_images(self, m):
         for k, imgs in m.visdom_imgs.items():
-            if k not in self.window_map:
-                win_hash = self.visdom.images(imgs, opts={"caption": k, "title": k})
-                self.window_map[k] = win_hash
+            key = self.PREFIX + k
+
+            if key not in self.window_map:
+                win_hash = self.visdom.images(imgs, opts={"caption": key, "title": key})
+                self.window_map[key] = win_hash
             else:
                 self.visdom.images(
-                    imgs, opts={"caption": k, "title": k}, win=self.window_map[k]
+                    imgs, opts={"caption": key, "title": key}, win=self.window_map[key]
                 )
+
+    def on_train_result(self, *, trainer, result, **kwargs) -> None:
+        model = trainer.get_policy().model
+        result["custom_metrics"].update(self.get_losses(model))
+        self.log_images(model)
+
+
+class VAEEvalMetrics(VAEMetrics):
+    PREFIX = "evaluation/"
+    mets: Dict[str, np.ndarray] = {}
+
+    def on_episode_end(self, worker, base_env, policies, episode, **kwargs):
+        episode.custom_metrics.update(self.mets)
+        self.mets = {}
+
+    def on_sample_end(self, *, worker, samples, **kwargs):
+        model = worker.get_policy().model
+
+        # Push batch thru trained model while in training mode
+        # so losses are populated
+        # Since we discard the losses from model.custom_loss
+        # we do not train the model
+        torch_samples, _, _ = sample_to_input(samples, model.device)
+        model.from_batch(torch_samples, is_training=False)
+        model.custom_loss([torch.tensor([0], device=model.device)], None)
+        self.mets = self.get_losses(model)
+        self.log_images(model)
 
 
 class AEMetrics(DefaultCallbacks):

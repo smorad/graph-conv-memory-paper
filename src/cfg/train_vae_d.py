@@ -14,28 +14,37 @@ from rewards.basic import BasicReward
 from rewards.path import PathReward
 
 from rayenv import NavEnv
-from custom_metrics import VAEMetrics
+from custom_metrics import VAEMetrics, VAEEvalMetrics
 
 
 register_env(NavEnv.__name__, NavEnv)
 cfg_dir = os.path.abspath(os.path.dirname(__file__))
+
+env_cfg = {
+    # Path to the habitat yaml config, that specifies sensor info,
+    # which maps to use, etc.
+    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train_vae.yaml",
+    # Habitat preprocessors change the observation space in the simulator
+    # These are loaded and run in-order
+    "preprocessors": {},
+    # Multiple reward functions may be implemented at once,
+    # they are summed together
+    # "rewards": {"stop_goal": BasicReward, "goal_path": PathReward},
+    "rewards": {},
+}
+
+# Change the path for our validation set
+val_env_cfg = {
+    **env_cfg,  # type: ignore
+    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_val_vae.yaml",
+}
 
 CFG = {
     # Our specific trainer type
     "ray_trainer": ImpalaTrainer,
     # Ray specific config sent to ray.tune or ray.rllib trainer
     "ray": {
-        "env_config": {
-            # Path to the habitat yaml config, that specifies sensor info,
-            # which maps to use, etc.
-            "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_val_vae_d.yaml",
-            # Habitat preprocessors change the observation space in the simulator
-            # These are loaded and run in-order
-            "preprocessors": {
-                "compass": CompassFix,
-            },
-            "rewards": {},
-        },
+        "env_config": env_cfg,
         # These are rllib/ray specific
         "framework": "torch",
         "model": {
@@ -45,10 +54,10 @@ CFG = {
                 "z_dim": 64,  # grid_search([64, 128]),
                 "depth_weight": 1.0,
                 "rgb_weight": 1.0,
-                "elbo_beta": 0.1,
+                "elbo_beta": 0.05,
             },
         },
-        "num_workers": 12,
+        "num_workers": 4,
         "num_cpus_per_worker": 2,
         # Total GPU usage: num_gpus (trainer proc) + num_gpus_per_worker (workers)
         "num_gpus_per_worker": 0.15,
@@ -59,9 +68,19 @@ CFG = {
         "rollout_fragment_length": 256,
         # Total number of timesteps to train per batch
         "train_batch_size": 1024,
-        "lr": 0.01,
+        "replay_proportion": 5.0,
+        "replay_buffer_num_slots": 128,
+        "lr": 0.001,
         "env": NavEnv,
         "callbacks": VAEMetrics,
+        "evaluation_interval": 25,
+        "evaluation_num_episodes": 10,
+        "evaluation_config": {
+            "env_config": val_env_cfg,
+            "callbacks": VAEEvalMetrics,
+        },
+        # "custom_eval_function": vae_eval,
+        "evaluation_num_workers": 1,  # Must be >0 to get OpenGL
     },
     "tune": {
         "goal_metric": {"metric": "custom_metrics/ae_combined_loss", "mode": "min"},
