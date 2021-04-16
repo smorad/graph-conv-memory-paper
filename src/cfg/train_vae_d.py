@@ -23,7 +23,7 @@ cfg_dir = os.path.abspath(os.path.dirname(__file__))
 env_cfg = {
     # Path to the habitat yaml config, that specifies sensor info,
     # which maps to use, etc.
-    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train_vae.yaml",
+    "hab_cfg_path": f"{cfg_dir}/pointnav_gibson_train_vae.yaml",
     # Habitat preprocessors change the observation space in the simulator
     # These are loaded and run in-order
     "preprocessors": {},
@@ -36,7 +36,7 @@ env_cfg = {
 # Change the path for our validation set
 val_env_cfg = {
     **env_cfg,  # type: ignore
-    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_val_vae.yaml",
+    "hab_cfg_path": f"{cfg_dir}/pointnav_gibson_val_vae.yaml",
 }
 
 CFG = {
@@ -57,23 +57,23 @@ CFG = {
                 "elbo_beta": 0.05,
             },
         },
-        "num_workers": 4,
+        "num_workers": 1,
         "num_cpus_per_worker": 2,
         # Total GPU usage: num_gpus (trainer proc) + num_gpus_per_worker (workers)
         "num_gpus_per_worker": 0.15,
         # this corresponds to the number of learner GPUs used,
         # not the total used for the environments/rollouts
-        "num_gpus": 1,
+        "num_gpus": 0.5,
         # Size of batches (in timesteps) placed in the learner queue
         "rollout_fragment_length": 256,
         # Total number of timesteps to train per batch
         "train_batch_size": 1024,
         "replay_proportion": 5.0,
         "replay_buffer_num_slots": 128,
-        "lr": 0.001,
+        "lr": 0.0005,
         "env": NavEnv,
         "callbacks": VAEMetrics,
-        "evaluation_interval": 25,
+        "evaluation_interval": 10,
         "evaluation_num_episodes": 10,
         "evaluation_config": {
             "env_config": val_env_cfg,
