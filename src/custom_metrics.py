@@ -1,4 +1,5 @@
 from ray.rllib.agents.callbacks import DefaultCallbacks
+from models.ray_graph import RayObsGraph
 from typing import Dict
 import ray
 import visdom
@@ -102,25 +103,33 @@ class EvalMetrics(CustomMetrics):
     def on_episode_start(
         self, *, worker, base_env, policies, episode, env_index: int, **kwargs
     ):
+        if not isinstance(worker.get_policy().model, RayObsGraph):
+            return
         for k in self.EVAL_METRICS:
             episode.user_data[k] = []
 
     def on_episode_end(self, worker, base_env, policies, episode, env_index, **kwargs):
+        if not isinstance(worker.get_policy().model, RayObsGraph):
+            return
         super().on_episode_end(worker, base_env, policies, episode, env_index, **kwargs)
-        export_dict = {k: np.array(episode.user_data[k]) for k in self.EVAL_METRICS}
+        export_dict = {
+            k: np.array(episode.user_data[k])
+            for k in self.EVAL_METRICS
+            if k in episode.user_data
+        }
         tb_dir = worker.io_context.log_dir
         outdir = f"{tb_dir}/validation"
         os.makedirs(outdir, exist_ok=True)
         with open(f"{outdir}/{episode.episode_id}.pkl", "wb") as f:
             pickle.dump(export_dict, f)
 
-    def on_sample_end(self, *, worker, samples, **kwargs):
-        pass
-
     def on_episode_step(self, *, worker, base_env, episode, env_index: int, **kwargs):
+        if not isinstance(worker.get_policy().model, RayObsGraph):
+            return
         episode.user_data["gps"].append(episode.last_raw_obs_for()["gps"])
         episode.user_data["compass"].append(episode.last_raw_obs_for()["compass"])
         episode.user_data["latent"].append(episode.last_raw_obs_for()["vae"])
+        # Only run for graphs
         if episode.length > 0:
             episode.user_data["forward_edges"].append(
                 episode.rnn_state_for()[1][:, episode.length - 1]
