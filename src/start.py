@@ -6,6 +6,10 @@ import subprocess
 import multiprocessing
 import time
 import shutil
+import numpy as np
+import warnings
+
+warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
 import ray
 import server.render
 import os
@@ -94,19 +98,22 @@ def get_trial_str(trial):
     edge_selectors = (
         trial.config["model"].get("custom_model_config", {}).get("edge_selectors", None)
     )
-    if edge_selectors:
-        edge_selectors = [e.__class__.__name__ for e in edge_selectors]
-
+    gnn = trial.config["model"].get("custom_model_config", {}).get("gnn")
+    gnn_name = getattr(gnn, "name", None)
     custom_model = trial.config["model"].get("custom_model", None)
     if custom_model:
         custom_model = custom_model.__name__
 
-    if custom_model and edge_selectors:
-        model = "_".join([custom_model, *edge_selectors])
+    if custom_model in ["RayObsGraph", "RaySparseObsGraph"]:
+        model = custom_model
+        if gnn_name:
+            model += f"_{gnn_name}"
+        if edge_selectors:
+            model += f"_{edge_selectors.__class__.__name__}"
     else:
         model = trial.config["model"]
-
-    return f"{env}-{trial.trial_id}-{model}"
+    name = f"{env}-{trial.trial_id}-{model}"
+    return name
 
 
 def train(args, cfg):

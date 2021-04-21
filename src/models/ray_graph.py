@@ -27,7 +27,7 @@ from torchviz import make_dot
 
 import torch_geometric
 from torch_geometric.data import Data, Batch
-from models.gam import GNN, DenseGAM
+from models.gam import DenseGAM
 from models.edge_selectors.bernoulli import BernoulliEdge
 import pydot
 import visdom
@@ -37,37 +37,39 @@ class RayObsGraph(TorchModelV2, nn.Module):
     DEFAULT_CONFIG = {
         # Maximum number of nodes in a graph
         "graph_size": 32,
-        # Maximum GCN forward passes per node, results in
-        # receptive field of gcn_hidden_layers * gcn_num_passes
-        "gcn_num_passes": 1,
-        # Size of the hidden layers and final output of the GNN
-        # before being fed to logits/vf layer(s)
-        "gcn_hidden_size": 256,
-        # Number of layers in the GCN, must be >= 2
-        "gcn_hidden_layers": 2,
-        # If using GAT, number of attention heads per layer
-        "gcn_num_attn_heads": 1,
-        # Graph convolution layer class
-        "gcn_conv_type": torch_geometric.nn.DenseGCNConv,
-        # Activation function for GNN layers
-        "gcn_act_type": torch.nn.Tanh,  # torch.nn.ReLU,
-        # Methodologies for building edges
-        # can be [temporal, dense, knn-mse, knn-cos]
-        "edge_selectors": [],
+        # Input size to the GNN. Make sure your first gnn layer
+        # has this many input channels
+        "gnn_input_size": 64,
+        # Number of output channels of the GNN. This feeds into the logits
+        # and value function layers
+        "gnn_output_size": 64,
+        # GNN model that takes x, edge_index, weights
+        # Note that input will be reshaped by a linear layer
+        # to gnn_input_size
+        "gnn": torch_geometric.nn.Sequential(
+            "x, edge_index, weights, B, N",
+            [
+                (torch_geometric.nn.GraphConv(64, 64), "x, edge_index -> x"),
+                torch.nn.Tanh(),
+                (torch_geometric.nn.GraphConv(64, 64), "x, edge_index -> x"),
+                torch.nn.Tanh(),
+            ],
+        ),
+        "edge_selectors": None,
         # Whether the prev action should be placed in the observation nodes
-        "use_prev_action": True,
+        "use_prev_action": False,
         # Add regularization loss based on weight matrix.
         # This only makes sense if using the BernoulliEdge.
         "regularize": False,
-        "regularization_coeff": 0.001,
+        "regularization_coeff": 1e-5,
+        # Do not apply regularization when graph density
+        # drops below this value. This prevents the density
+        # from going all the way to zero
+        "regularization_min": 0.1,
         # Set to true use sparse conv layers and false for dense conv layers
         "sparse": False,
         # For debug visualization
         "export_gradients": False,
-        # Initialize the gcn layers the same way
-        # rllib initializes fcnet layers
-        # for more fair comparisons
-        "fcnet_init": False,
     }
 
     def __init__(
@@ -114,33 +116,20 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
-        if self.cfg["fcnet_init"]:
-            init_fn = normc_initializer(1.0)
-        else:
-            init_fn = None
-        gnn = GNN(
-            input_size=self.input_dim,
-            graph_size=cfg["graph_size"],
-            hidden_size=cfg["gcn_hidden_size"],
-            num_layers=cfg["gcn_hidden_layers"],
-            conv_type=cfg["gcn_conv_type"],
-            activation=cfg["gcn_act_type"],
-            sparse=cfg["sparse"],
-            init_fn=init_fn,
-            test="adj",
+        fc = torch.nn.Linear(self.input_dim, cfg["gnn_input_size"])
+        self.gam = DenseGAM(
+            cfg["gnn"], preprocessor=fc, edge_selectors=self.cfg["edge_selectors"]
         )
 
-        self.gam = DenseGAM(gnn, edge_selectors=self.cfg["edge_selectors"])
-
         self.logit_branch = SlimFC(
-            in_size=cfg["gcn_hidden_size"],
+            in_size=cfg["gnn_output_size"],
             out_size=self.num_outputs,
             activation_fn=None,
             initializer=normc_initializer(0.01),  # torch.nn.init.xavier_uniform_,
         )
 
         self.value_branch = SlimFC(
-            in_size=cfg["gcn_hidden_size"],
+            in_size=cfg["gnn_output_size"],
             out_size=1,
             activation_fn=None,
             initializer=normc_initializer(0.01),  # torch.nn.init.xavier_uniform_,
@@ -317,7 +306,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
 
         # logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
         # values = torch.zeros(B, T, 1, device=flat.device)
-        outs = torch.zeros(B, T, self.cfg["gcn_hidden_size"], device=flat.device)
+        outs = torch.zeros(B, T, self.cfg["gnn_output_size"], device=flat.device)
         # Deconstruct batch into batch and time dimensions: [B, T, feats]
         flat = torch.reshape(flat, [-1, T] + list(flat.shape[1:]))
         nodes, adj_mats, weights, num_nodes = state
@@ -326,13 +315,15 @@ class RayObsGraph(TorchModelV2, nn.Module):
         if self.cfg["sparse"]:
             adj_mats = adj_mats.long()
 
+        # Push thru pre-gam layers
+        # flat = self.fcnet(flat.reshape(B * T, self.input_dim)).reshape(B, T, self.cfg["gcn_hidden_size"])
         hidden = (nodes, adj_mats, weights, num_nodes)
         for t in range(T):
             out, hidden = self.gam(flat[:, t, :], hidden)
             outs[:, t, :] = out
 
         # Collapse batch and time for more efficient forward
-        out_view = outs.view(B * T, self.cfg["gcn_hidden_size"])
+        out_view = outs.view(B * T, self.cfg["gnn_output_size"])
         logits = self.logit_branch(out_view)
         values = self.value_branch(out_view)
 
@@ -368,12 +359,18 @@ class RayObsGraph(TorchModelV2, nn.Module):
         if not self.cfg["regularize"]:
             return policy_loss
 
+        # TODO: This loss will not work with new edge_selector logic
         [bern_edge] = [
             e for e in self.cfg["edge_selectors"] if isinstance(e, BernoulliEdge)
         ]
 
         # L_0 regularization loss for bernoulli
-        reg_loss = self.cfg["regularization_coeff"] * bern_edge.detach_loss()
+        edge_density = bern_edge.detach_loss()
+        reg_loss = self.cfg["regularization_coeff"] * edge_density
         self.add_grad_dot(reg_loss, "reg_loss")
+        # For next time
+        # reg_loss = self.cfg["regularization_coeff"] * edge_density
+        # policy_loss[0] = policy_loss[0] * (1 + reg_loss)
         policy_loss[0] = policy_loss[0] + reg_loss
+
         return policy_loss

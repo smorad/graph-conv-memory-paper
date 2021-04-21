@@ -1,6 +1,7 @@
 import unittest
 import torch
-from gam import GNN, DenseGAM
+import gam
+from gam import DenseGAM
 import torch_geometric
 from edge_selectors.temporal import TemporalBackedge
 from edge_selectors.distance import EuclideanEdge, CosineEdge, SpatialEdge
@@ -15,15 +16,18 @@ class TestDenseGAME2E(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(
-            input_size=feats,
-            graph_size=N,
-            hidden_size=feats,
-            activation=torch.nn.ReLU,
-            conv_type=torch_geometric.nn.DenseGraphConv,
+        conv_type = torch_geometric.nn.DenseGraphConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
         )
-        for layer in self.g.layers:
-            if layer.__class__ == self.g.conv_type:
+        for layer in list(self.g.modules())[1]:
+            if layer.__class__ == conv_type:
                 layer.lin_root.weight = torch.nn.Parameter(
                     torch.diag(torch.ones(layer.lin_root.weight.shape[-1]))
                 )
@@ -95,7 +99,16 @@ class TestDenseGAM(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(input_size=feats, graph_size=N, hidden_size=feats)
+        conv_type = torch_geometric.nn.DenseGCNConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
+        )
         self.s = DenseGAM(self.g)
 
         # Now do it in a loop to make sure grads propagate
@@ -110,8 +123,9 @@ class TestDenseGAM(unittest.TestCase):
         self.num_nodes = torch.zeros(batches, dtype=torch.long)
 
     def test_grad_prop(self):
-        self.g = GNN(11, 11, 11, test=True)
-        self.s = DenseGAM(self.g)
+        self.g.grad_test_var = torch.nn.Parameter(torch.tensor([1.0]))
+        self.nodes = self.nodes * self.g.grad_test_var
+        self.assertTrue(self.nodes.requires_grad)
         out, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
@@ -184,12 +198,15 @@ class TestSparseGAM(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(
-            input_size=feats,
-            graph_size=N,
-            hidden_size=feats,
-            sparse=True,
-            conv_type=torch_geometric.nn.GCNConv,
+        conv_type = torch_geometric.nn.DenseGCNConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
         )
         self.s = DenseGAM(self.g)
 
@@ -228,7 +245,7 @@ class TestSparseGAM(unittest.TestCase):
         dense_batch = torch_geometric.data.Batch(
             x=self.nodes, adj=self.adj, edge_weight=self.weights, B=B, N=N
         )
-        sparse_batch = self.g.dense_to_sparse(dense_batch)
+        sparse_batch = gam.dense_to_sparse(dense_batch)
         new_nodes = torch_geometric.utils.to_dense_batch(
             x=sparse_batch.x, batch=sparse_batch.batch, max_num_nodes=sparse_batch.N
         )[0]
@@ -250,8 +267,8 @@ class TestSparseGAM(unittest.TestCase):
         batch = torch_geometric.data.Batch(
             x=self.nodes, adj=self.adj, edge_weight=self.weights, B=B, N=N
         )
-        sparse_batch = self.g.dense_to_sparse(batch)
-        dense_batch = self.g.sparse_to_dense(sparse_batch)
+        sparse_batch = gam.dense_to_sparse(batch)
+        dense_batch = gam.sparse_to_dense(sparse_batch)
 
         if torch.any(dense_batch.x != batch.x):
             self.fail(f"x: {dense_batch.x} != {batch.x}")
@@ -318,8 +335,17 @@ class TestTemporalEdge(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(feats, feats)
-        self.s = DenseGAM(self.g, edge_selectors=[TemporalBackedge(num_hops=1)])
+        conv_type = torch_geometric.nn.DenseGCNConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
+        )
+        self.s = DenseGAM(self.g, edge_selectors=TemporalBackedge(num_hops=1))
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -352,8 +378,17 @@ class TestDistanceEdge(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(feats, feats)
-        self.s = DenseGAM(self.g, edge_selectors=[EuclideanEdge(max_distance=1)])
+        conv_type = torch_geometric.nn.DenseGCNConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
+        )
+        self.s = DenseGAM(self.g, edge_selectors=EuclideanEdge(max_distance=1))
 
         self.nodes = torch.zeros(batches, N, feats, dtype=torch.float)
         self.obs = torch.zeros(batches, feats)
@@ -386,7 +421,7 @@ class TestDistanceEdge(unittest.TestCase):
             self.fail(f"{tgt_adj} != {self.adj}")
 
     def test_cosine(self):
-        self.s = DenseGAM(self.g, edge_selectors=[CosineEdge(max_distance=1)])
+        self.s = DenseGAM(self.g, edge_selectors=CosineEdge(max_distance=1))
         _, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
@@ -397,8 +432,17 @@ class TestDenseEdge(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(feats, feats)
-        self.s = DenseGAM(self.g, edge_selectors=[DenseEdge()])
+        conv_type = torch_geometric.nn.DenseGCNConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
+        )
+        self.s = DenseGAM(self.g, edge_selectors=DenseEdge())
 
         self.nodes = torch.zeros(batches, N, feats, dtype=torch.float)
         self.obs = torch.zeros(batches, feats)
@@ -432,8 +476,17 @@ class TestBernoulliEdge(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(input_size=feats, graph_size=N, hidden_size=feats, test="adj")
-        self.s = DenseGAM(self.g, edge_selectors=[BernoulliEdge(feats)])
+        conv_type = torch_geometric.nn.DenseGCNConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
+        )
+        self.s = DenseGAM(self.g, edge_selectors=BernoulliEdge(feats))
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -447,6 +500,10 @@ class TestBernoulliEdge(unittest.TestCase):
         self.num_nodes = torch.zeros(batches, dtype=torch.long)
 
     def test_grad_prop(self):
+        self.g.grad_test_var = torch.nn.Parameter(torch.tensor([1.0]))
+        self.nodes = self.nodes * self.g.grad_test_var
+        self.assertTrue(self.nodes.requires_grad)
+
         out, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
@@ -468,7 +525,7 @@ class TestBernoulliEdge(unittest.TestCase):
         out, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (nodes, adj, weights, num_nodes)
         )
-        adj, weights = self.s.edge_selectors[0](nodes, adj, weights, num_nodes, 5)
+        adj, weights = self.s.edge_selectors(nodes, adj, weights, num_nodes, 5)
         self.assertTrue(adj.grad_fn, "Adj has no gradient")
         self.assertTrue(weights.grad_fn, "Weight has no gradient")
 
@@ -482,9 +539,9 @@ class TestBernoulliEdge(unittest.TestCase):
         out, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (nodes, adj, weights, num_nodes)
         )
-        self.s.edge_selectors[0].zero_grad()
+        self.s.edge_selectors.zero_grad()
         nodes = torch.rand_like(self.nodes) * 0.00001
-        adj, weights = self.s.edge_selectors[0](nodes, adj, weights, num_nodes, 5)
+        adj, weights = self.s.edge_selectors(nodes, adj, weights, num_nodes, 5)
         adj.mean().backward()
         self.optimizer.step()
 
@@ -510,7 +567,7 @@ class TestBernoulliEdge(unittest.TestCase):
             for t in range(T):
                 obs, hidden = self.s(obs, hidden)
 
-            loss = self.s.edge_selectors[0].compute_full_loss(nodes, nodes.shape[0])
+            loss = self.s.edge_selectors.compute_full_loss(nodes, nodes.shape[0])
             loss.backward()
             losses.append(loss)
 
@@ -521,15 +578,43 @@ class TestBernoulliEdge(unittest.TestCase):
         if not losses[-1] < losses[0]:
             self.fail(f"Final loss {losses[-1]} not better than init loss {losses[0]}")
 
+    def test_validate_logits(self):
+        # TODO: Fix test
+        return
+        nodes = self.nodes
+        adj = self.adj
+        weights = self.weights
+        num_nodes = self.num_nodes
+        adj, weights = self.s.edge_selectors.compute_logits(
+            nodes, weights.clone(), num_nodes, 5
+        )
+        adj2, weights2 = self.s.edge_selectors.compute_logits2(
+            nodes, weights.clone(), num_nodes, 5
+        )
+        if torch.any(adj != adj2):
+            self.fail(f"{adj} != {adj2}")
+
+        if torch.any(weights != weights):
+            self.fail(f"{weights} != {weights2}")
+
 
 class TestSpatialEdge(unittest.TestCase):
     def setUp(self):
         feats = 11
         batches = 5
         N = 10
-        self.g = GNN(feats, feats)
+        conv_type = torch_geometric.nn.DenseGCNConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
+        )
         self.slice = slice(0, 2)
-        self.s = DenseGAM(self.g, edge_selectors=[SpatialEdge(1, self.slice)])
+        self.s = DenseGAM(self.g, edge_selectors=SpatialEdge(1, self.slice))
 
         self.nodes = torch.zeros(batches, N, feats, dtype=torch.float)
         self.obs = torch.zeros(batches, feats)

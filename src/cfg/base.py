@@ -5,6 +5,7 @@ from ray.rllib.agents.ppo import PPOTrainer
 from ray.tune import register_env
 
 from preprocessors.compass_fix import CompassFix
+from preprocessors.compass_components import CompassComponents
 from preprocessors.semantic.quantized_mesh import QuantizedSemanticMask
 from preprocessors.quantized_depth import QuantizedDepth
 from preprocessors.ghost_rgb import GhostRGB
@@ -18,7 +19,7 @@ from rewards.explore import ExplorationReward
 from rewards.collision import CollisionReward
 
 from rayenv import NavEnv
-from custom_metrics import CustomMetrics
+from custom_metrics import CustomMetrics, EvalMetrics
 
 
 register_env(NavEnv.__name__, NavEnv)
@@ -28,11 +29,12 @@ cfg_dir = os.path.abspath(os.path.dirname(__file__))
 env_cfg = {
     # Path to the habitat yaml config, that specifies sensor info,
     # which maps to use, etc.
-    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train_val_mini.yaml",
+    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train_val.yaml",
     # Habitat preprocessors change the observation space in the simulator
     # These are loaded and run in-order
     "preprocessors": {
         "compass": CompassFix,
+        "compass_comp": CompassComponents,
         # "semantic": QuantizedSemanticMask,
         # "depth": QuantizedDepth,
         # "rgb_visualization": GhostRGB,
@@ -49,6 +51,7 @@ env_cfg = {
 val_env_cfg = {
     **env_cfg,  # type: ignore
     "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train_val_mini.yaml",
+    "callbacks": EvalMetrics,
 }
 
 
@@ -82,13 +85,15 @@ CFG = {
         # "num_sgd_iter": 5,
         "replay_proportion": 1.0,
         "replay_buffer_num_slots": 32,
+        # "learner_queue_size": 32,
         # "placement_strategy": "SPREAD",
         # For evaluation
         # How many epochs/train iters
-        "evaluation_interval": 2,
-        "evaluation_num_episodes": 10,
-        "evaluation_config": val_env_cfg,
-        "evaluation_num_workers": 1,  # Must be >0 to get OpenGL
+        # "evaluation_interval": 10,
+        # "evaluation_num_episodes": 10,
+        # "evaluation_config": val_env_cfg,
+        # "evaluation_num_workers": 1,  # Must be >0 to get OpenGL
+        # "evaluation_parallel_to_training": True,
     },
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
