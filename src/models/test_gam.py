@@ -10,6 +10,62 @@ from edge_selectors.bernoulli import BernoulliEdge
 import torchviz
 
 
+class TestGAMDirection(unittest.TestCase):
+    def setUp(self):
+        torch.autograd.set_detect_anomaly(True)
+        feats = 11
+        batches = 1
+        N = 10
+        conv_type = torch_geometric.nn.DenseGraphConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
+        )
+        for layer in list(self.g.modules())[1]:
+            if layer.__class__ == conv_type:
+                layer.lin_root.weight = torch.nn.Parameter(
+                    torch.diag(torch.zeros(layer.lin_root.weight.shape[-1]))
+                )
+                layer.lin_root.bias = torch.nn.Parameter(
+                    torch.zeros_like(layer.lin_root.bias)
+                )
+                layer.lin_rel.weight = torch.nn.Parameter(
+                    torch.diag(torch.ones(layer.lin_root.weight.shape[-1]))
+                )
+        self.s = DenseGAM(self.g)
+
+        self.nodes = torch.arange((batches * N * feats), dtype=torch.float).reshape(
+            batches, N, feats
+        )
+        self.all_obs = [
+            1 * torch.ones(batches, feats),
+            2 * torch.ones(batches, feats),
+            3 * torch.ones(batches, feats),
+        ]
+        self.adj = torch.zeros(batches, N, N)
+        self.weights = torch.ones(batches, N, N)
+        self.num_nodes = torch.zeros(batches, dtype=torch.long)
+
+    def test_gam_direction(self):
+        # Only get neighbor
+        self.adj[:, 0, 3] = 1
+        # list(self.g.modules())[1][0].lin_rel(torch.matmul(self.adj, self.nodes))
+
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            self.all_obs[0], (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        # neighbor
+        # flows from 3 => 0, neighbor => root
+        # root = i, neighbor = j
+        # j should be < i
+        desired = torch.arange(3 * 11, 4 * 11, dtype=torch.float)
+        if not torch.all(self.nodes[0, 3] == desired):
+            self.fail(f"{self.nodes[0,3]} != {desired}")
+
+
 class TestDenseGAME2E(unittest.TestCase):
     def setUp(self):
         torch.autograd.set_detect_anomaly(True)
@@ -155,6 +211,14 @@ class TestDenseGAM(unittest.TestCase):
         )
         if torch.any(nodes[:, 1] != self.obs):
             self.fail(f"{nodes[:,0]} != {self.obs}")
+
+    def test_num_nodes_entry(self):
+        _, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        B_idx = torch.arange(num_nodes.shape[0])
+        if torch.any(nodes[B_idx, num_nodes - 1] != self.obs):
+            self.fail(f"{nodes[:,num_nodes]} != {self.obs}")
 
     def test_propagation(self):
         out, (nodes, adj, weights, num_nodes) = self.s(
@@ -366,7 +430,7 @@ class TestTemporalEdge(unittest.TestCase):
             self.obs, (nodes, adj, weights, num_nodes)
         )
         tgt_adj = torch.zeros_like(adj, dtype=torch.long)
-        tgt_adj[:, 0, 1] = 1
+        # tgt_adj[:, 0, 1] = 1
         tgt_adj[:, 1, 0] = 1
         # Also add self edges
         if torch.any(tgt_adj != adj):
@@ -402,7 +466,6 @@ class TestDistanceEdge(unittest.TestCase):
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
         tgt_adj = torch.zeros_like(adj, dtype=torch.long)
-        tgt_adj[:, 0, 1] = 1
         tgt_adj[:, 1, 0] = 1
 
         # TODO: Ensure not off by one
@@ -534,7 +597,7 @@ class TestBernoulliEdge(unittest.TestCase):
             self.nodes,
             self.adj,
             self.weights,
-            self.num_nodes,
+            self.num_nodes + 1,
         )
         out, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (nodes, adj, weights, num_nodes)
@@ -556,7 +619,7 @@ class TestBernoulliEdge(unittest.TestCase):
                 batches, N, feats
             )
             obs = torch.ones(batches, feats)
-            adj = torch.zeros(batches, N, N, dtype=torch.long)
+            adj = torch.zeros(batches, N, N)
             weights = torch.ones(batches, N, N)
             num_nodes = torch.zeros(batches, dtype=torch.long)
 
@@ -577,6 +640,19 @@ class TestBernoulliEdge(unittest.TestCase):
 
         if not losses[-1] < losses[0]:
             self.fail(f"Final loss {losses[-1]} not better than init loss {losses[0]}")
+
+    def test_logit_index(self):
+        # Given 3 nodes, make sure we compare node 3 to nodes 1,2
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        # First run has no gradient as no edges to be made
+        out, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (nodes, adj, weights, num_nodes)
+        )
+        adj, weights = self.s.edge_selectors(nodes, adj, weights, num_nodes, 5)
+        self.assertTrue(adj.grad_fn, "Adj has no gradient")
+        self.assertTrue(weights.grad_fn, "Weight has no gradient")
 
     def test_validate_logits(self):
         # TODO: Fix test
@@ -630,9 +706,13 @@ class TestSpatialEdge(unittest.TestCase):
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
         tgt_adj = torch.zeros_like(adj, dtype=torch.long)
+        B_idx = torch.arange(num_nodes.shape[0])
         # It adds self edge
-        tgt_adj[:, 0, 1] = 1
-        tgt_adj[:, 1, 0] = 1
+        # tgt_adj[:, 0, 1] = 1
+        # tgt_adj[:, 1, 0] = 1
+        tgt_adj[B_idx, num_nodes[B_idx] - 1, 0] = 1
+
+        B_idx = torch.arange(num_nodes.shape[0])
 
         # TODO: Ensure not off by one
         if torch.any(tgt_adj != adj):

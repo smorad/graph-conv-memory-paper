@@ -96,8 +96,16 @@ spatial_model["custom_model_config"]["edge_selectors"] = SpatialEdge(
     max_distance=0.25, pose_slice=slice(2, 4)
 )
 
+spatial_model_far = deepcopy(base_model)
+spatial_model_far["custom_model_config"]["edge_selectors"] = SpatialEdge(
+    max_distance=0.5, pose_slice=slice(2, 4)
+)
+
 bernoulli_model = deepcopy(base_model)
 bernoulli_model["custom_model_config"]["edge_selectors"] = BernoulliEdge(71)
+# bernoulli_model["custom_model_config"]["regularize"] = True
+# bernoulli_model["custom_model_config"]["regularization_coeff"] = 1e-7
+
 
 bernoulli_gin = deepcopy(base_model)
 bernoulli_gin["custom_model_config"]["edge_selectors"] = BernoulliEdge(71)
@@ -117,14 +125,14 @@ dnc_model = {
 }
 
 models = [
-    bernoulli_gin,
-    gin_model,
-    base_model,
+    # bernoulli_gin,
+    # bernoulli_model,
     temporal_model,
     spatial_model,
-    bernoulli_model,
-    rnn_model,
-    no_mem,
+    # gin_model,
+    # base_model,
+    # rnn_model,
+    # no_mem,
 ]
 
 CFG = base.CFG
@@ -150,7 +158,7 @@ CFG["tune"] = {
 }
 
 if os.environ.get("DEBUG", False):
-    CFG["ray"]["model"] = bernoulli_gin
+    CFG["ray"]["model"] = bernoulli_model
     CFG["ray"]["num_workers"] = 0
     CFG["ray"]["num_gpus"] = 0.3
     # CFG["ray"]["evaluation_num_workers"] = 1

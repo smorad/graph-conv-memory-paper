@@ -5,9 +5,10 @@ class Distance(torch.nn.Module):
     """Base class for edges based on the similarity between
     latent representations"""
 
-    def __init__(self, max_distance):
+    def __init__(self, max_distance, bidirectional=False):
         super().__init__()
         self.max_distance = max_distance
+        self.bidirectional = bidirectional
 
     def forward(self, nodes, adj_mats, edge_weights, num_nodes, B):
         """Connect current obs to past obs based on distance of the node features"""
@@ -23,7 +24,8 @@ class Distance(torch.nn.Module):
         node_idxs = node_idxs.masked_select(num_nodes_mask)
 
         adj_mats[batch_idxs, num_nodes[batch_idxs].squeeze(), node_idxs] = 1
-        adj_mats[batch_idxs, node_idxs, num_nodes[batch_idxs].squeeze()] = 1
+        if self.bidirectional:
+            adj_mats[batch_idxs, node_idxs, num_nodes[batch_idxs].squeeze()] = 1
 
         return adj_mats, edge_weights
 
