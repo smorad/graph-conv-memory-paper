@@ -145,12 +145,13 @@ class DenseGAM(torch.nn.Module):
         ), "N must be equal for adj mat and node mat"
 
         if overflow(num_nodes, N):
-            # if torch.any(num_nodes + 1 >= N):
-            print(
-                f"Warning, ran out of graph space (N={N}, t={num_nodes.max() + 1}). Overwriting node matrix"
-            )
-            batch_overflow = num_nodes + 1 >= N
-            num_nodes[batch_overflow] = 0
+            overflow_mask = num_nodes + 1 >= N
+            # Shift node matrix into the past
+            # by one and forget the zeroth node
+            overflowing_batches = overflow_mask.nonzero().squeeze()
+            nodes = nodes.clone()
+            nodes[overflowing_batches] = torch.roll(nodes[overflowing_batches], -1, -2)
+            num_nodes[overflow_mask] = num_nodes[overflow_mask] - 1
 
         # Add new nodes to the current graph
         # starting at num_nodes
