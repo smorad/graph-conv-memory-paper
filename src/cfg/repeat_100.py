@@ -14,10 +14,10 @@ from models.ray_dnc import DNCMemory
 from cfg import base
 
 register_env(RepeatAfterMeEnv.__name__, RepeatAfterMeEnv)
-seq_len = 20
+seq_len = 100
 hidden = 32
 gsize = seq_len + 1
-delay = 3
+delay = 50
 
 # These are specific to our habitat-based environment
 env_cfg = {
