@@ -137,7 +137,8 @@ class RaySparseObsGraph(TorchModelV2, nn.Module):
 
     def get_initial_state(self):
         # B,2,k
-        edges = torch.tensor([], dtype=torch.long).reshape(2, 0)
+        # edges = torch.tensor([], dtype=torch.long).reshape(2, 0)
+        edges = torch.zeros([], dtype=torch.long).reshape(2, 0)
         # B,T,feat
         nodes = torch.tensor([]).reshape(0, self.input_dim)
         # B,1,k
@@ -299,25 +300,11 @@ class RaySparseObsGraph(TorchModelV2, nn.Module):
         values = self.value_branch(out_view)
         # print(B, T, nodes.shape)
 
-        """
-        self.add_grad_dot(logits, "logits")
-        self.add_grad_dot(hidden[1], "adj")
-        self.add_grad_dot(hidden[2], "weights")
-        self.adj_heatmap(hidden[1])
-        self.report_densities(hidden[1], hidden[2])
-        # self.pose_adj_scatter(hidden[1], hidden[-1])
-        """
         self.cur_val = values.squeeze(1)
         self.fwd_iters += 1
 
         # Old num_nodes shape
         state = [nodes, edges, weights]
-        """
-        self.export_dots()
-        self.get_num_comp_graph_nodes()
-        if self.training:
-            self.grad_dots.clear()
-        """
         return logits, state
 
     def custom_loss(

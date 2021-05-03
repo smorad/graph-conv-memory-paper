@@ -1,6 +1,7 @@
 import torch
 import gym
 from torch import nn
+from collections import OrderedDict
 from typing import Union, Dict, List, Tuple
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.torch.misc import SlimFC
@@ -19,12 +20,20 @@ class DNCMemory(TorchModelV2, nn.Module):
 
     DEFAULT_CONFIG = {
         "dnc_model": DNC,
-        "hidden_size": 128,
-        "num_layers": 1,
+        # Number of controller hidden layers
         "num_hidden_layers": 2,
+        # Number of weights per controller hidden layer
+        "hidden_size": 128,
+        # Number of LSTM units
+        "num_layers": 1,
+        # Number of read heads, i.e. how many addrs are read at once
         "read_heads": 4,
+        # Number of memory cells in the controller
         "nr_cells": 32,
+        # Size of each cell
         "cell_size": 16,
+        # LSTM activation function
+        "nonlinearity": "tanh",
     }
 
     MEMORY_KEYS = [
@@ -54,6 +63,9 @@ class DNCMemory(TorchModelV2, nn.Module):
         self.act_dim = gym.spaces.utils.flatdim(action_space)
 
         self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
+        assert (
+            self.cfg["num_layers"] == 1
+        ), "num_layers != 1 has not been implemented yet"
         self.cur_val = None
 
         self.logit_branch = SlimFC(
@@ -113,7 +125,13 @@ class DNCMemory(TorchModelV2, nn.Module):
         ]
         read_vecs: TensorType = state[2]
         memory: List[TensorType] = state[3:]
-        memory_dict: Dict[str, TensorType] = dict(zip(self.MEMORY_KEYS, memory))
+        memory_dict: OrderedDict[str, TensorType] = OrderedDict(
+            zip(self.MEMORY_KEYS, memory)
+        )
+
+        # assert len(ctrl_hidden) == 2
+        # assert len(read_vecs) == 1
+        # assert len(memory_dict) == 6
 
         return ctrl_hidden, memory_dict, read_vecs
 
@@ -130,9 +148,11 @@ class DNCMemory(TorchModelV2, nn.Module):
             ctrl_hidden[0][0].permute(1, 0, 2),
             ctrl_hidden[0][1].permute(1, 0, 2),
         ]
-        state += ctrl_hidden  # len 2
-        state.append(read_vecs)  # len 3
-        state += memory_dict.values()  # len 9
+        state += ctrl_hidden
+        assert len(state) == 2, "Failed to verify packed state"
+        state.append(read_vecs)
+        assert len(state) == 3, "Failed to verify packed state"
+        state += memory_dict.values()
         assert len(state) == 9, "Failed to verify packed state"
         return state
 
@@ -162,6 +182,19 @@ class DNCMemory(TorchModelV2, nn.Module):
             f"{read_vecs.shape}"
         )
 
+    def build_dnc(self, device_idx: Union[int, None]) -> None:
+        self.dnc = self.cfg["dnc_model"](
+            input_size=self.obs_dim,
+            hidden_size=self.cfg["hidden_size"],
+            num_layers=self.cfg["num_layers"],
+            num_hidden_layers=self.cfg["num_hidden_layers"],
+            read_heads=self.cfg["read_heads"],
+            cell_size=self.cfg["cell_size"],
+            nr_cells=self.cfg["nr_cells"],
+            nonlinearity=self.cfg["nonlinearity"],
+            gpu_id=device_idx,
+        )
+
     def forward(
         self,
         input_dict: Dict[str, TensorType],
@@ -175,43 +208,24 @@ class DNCMemory(TorchModelV2, nn.Module):
         B = len(seq_lens)
         T = flat.shape[0] // B
 
-        logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
-        values = torch.zeros(B, T, 1, device=flat.device)
         # Deconstruct batch into batch and time dimensions: [B, T, feats]
         flat = torch.reshape(flat, [-1, T] + list(flat.shape[1:]))
 
         # First run
         if self.dnc is None:
-            (ctrl_hidden, read_vecs, memory_dict) = (None, None, None)
             gpu_id = flat.device.index if flat.device.index is not None else -1
-            self.dnc = self.cfg["dnc_model"](
-                input_size=self.obs_dim,
-                hidden_size=self.cfg["hidden_size"],
-                num_layers=self.cfg["num_layers"],
-                read_heads=self.cfg["read_heads"],
-                cell_size=self.cfg["cell_size"],
-                nr_cells=self.cfg["nr_cells"],
-                gpu_id=gpu_id,
-            )
-            output, (ctrl_hidden, memory_dict, read_vecs) = self.dnc(
-                flat, (ctrl_hidden, memory_dict, read_vecs)
-            )
+            self.build_dnc(gpu_id)
+            hidden = (None, None, None)
 
         else:
-            ctrl_hidden, memory_dict, read_vecs = self.unpack_state(state)
-            output, (ctrl_hidden, memory_dict, read_vecs) = self.dnc(
-                flat, (ctrl_hidden, memory_dict, read_vecs)
-            )
+            hidden = self.unpack_state(state)  # type: ignore
 
-        packed_state = self.pack_state(ctrl_hidden, memory_dict, read_vecs)
+        output, hidden = self.dnc(flat, hidden)
+        packed_state = self.pack_state(*hidden)
 
         # Compute action/value from output
-        for t in range(T):
-            logits[:, t] = self.logit_branch(output[:, t])
-            values[:, t] = self.value_branch(output[:, t])
-
-        logits = logits.reshape((B * T, self.num_outputs))
-        values = values.reshape((B * T, 1))
+        logits = self.logit_branch(output.view(B * T, -1))
+        values = self.value_branch(output.view(B * T, -1))
 
         self.cur_val = values.squeeze(1)
 

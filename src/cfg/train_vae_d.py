@@ -57,13 +57,13 @@ CFG = {
                 "elbo_beta": 0.05,
             },
         },
-        "num_workers": 1,
+        "num_workers": 5,
         "num_cpus_per_worker": 2,
         # Total GPU usage: num_gpus (trainer proc) + num_gpus_per_worker (workers)
         "num_gpus_per_worker": 0.15,
         # this corresponds to the number of learner GPUs used,
         # not the total used for the environments/rollouts
-        "num_gpus": 0.5,
+        "num_gpus": 1.0,
         # Size of batches (in timesteps) placed in the learner queue
         "rollout_fragment_length": 256,
         # Total number of timesteps to train per batch

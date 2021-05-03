@@ -6,8 +6,74 @@ import torch_geometric
 from edge_selectors.temporal import TemporalBackedge
 from edge_selectors.distance import EuclideanEdge, CosineEdge, SpatialEdge
 from edge_selectors.dense import DenseEdge
-from edge_selectors.bernoulli import BernoulliEdge
+from edge_selectors.bernoulli import BernoulliEdge, sample_hard
 import torchviz
+
+
+class TestWrapOverflow(unittest.TestCase):
+    def setUp(self):
+        torch.autograd.set_detect_anomaly(True)
+        feats = 5
+        batches = 2
+        N = 7
+        conv_type = torch_geometric.nn.DenseGraphConv
+        self.g = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (conv_type(feats, feats), "x, adj -> x"),
+                (torch.nn.ReLU()),
+            ],
+        )
+        self.s = DenseGAM(self.g)
+
+        self.nodes = torch.arange((batches * N * feats), dtype=torch.float).reshape(
+            batches, N, feats
+        )
+        self.obs = torch.ones(batches, feats) * 5
+        self.adj = torch.zeros(batches, N, N)
+        self.weights = torch.ones(batches, N, N)
+        self.num_nodes = torch.tensor([1, 7])
+
+    def test_wrap_overflow(self):
+        self.adj[:, 0, :] = 1
+        self.adj[:, :, 0] = 1
+        self.weights[:, 0, :] = 5
+        self.weights[:, :, 0] = 5
+        self.nodes[:, 0] = 0
+
+        desired = torch.zeros_like(self.adj)
+        desired[0, 0, :] = 1
+        desired[0, :, 0] = 1
+        desired_weights = torch.ones_like(self.weights)
+        desired_weights[0, 0, :] = 5
+        desired_weights[0, :, 0] = 5
+        desired_weights[1, -1, :] = 0
+        desired_weights[1, :, -1] = 0
+        desired_nodes = self.nodes.clone()
+        desired_nodes[0, 1] = 5
+        desired_nodes[1, -1] = 5
+        desired_nodes[1, 0] = torch.arange(8 * 5, 9 * 5)
+        _, (nodes, adj, weights, num_nodes) = self.s(
+            self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
+        )
+        if not torch.all(adj == desired):
+            self.fail(f"{adj} != {desired}")
+
+        if not torch.all(weights == desired_weights):
+            self.fail(f"{weights} != {desired_weights}")
+
+        if not torch.all(nodes[0] == desired_nodes[0]):
+            self.fail(f"{nodes[0]} != {desired_nodes[0]}")
+
+        # It's shifted by one
+        if not torch.all(nodes[1, 1] == desired_nodes[1, 2]):
+            self.fail(f"{nodes[1,2]} != {desired_nodes[1,1]}")
+
+        if not torch.all(nodes[1, 0] == desired_nodes[1, 0]):
+            self.fail(f"{nodes[1,0]} != {desired_nodes[1,0]}")
+
+        if not torch.all(nodes[1, -1] == desired_nodes[1, -1]):
+            self.fail(f"{nodes[0]} != {desired_nodes[0]}")
 
 
 class TestGAMDirection(unittest.TestCase):
@@ -396,8 +462,8 @@ class TestSparseGAM(unittest.TestCase):
 
 class TestTemporalEdge(unittest.TestCase):
     def setUp(self):
-        feats = 11
-        batches = 5
+        feats = 3
+        batches = 2
         N = 10
         conv_type = torch_geometric.nn.DenseGCNConv
         self.g = torch_geometric.nn.Sequential(
@@ -409,7 +475,7 @@ class TestTemporalEdge(unittest.TestCase):
                 (torch.nn.ReLU()),
             ],
         )
-        self.s = DenseGAM(self.g, edge_selectors=TemporalBackedge(num_hops=1))
+        self.s = DenseGAM(self.g, edge_selectors=TemporalBackedge(hops=[1]))
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -433,6 +499,30 @@ class TestTemporalEdge(unittest.TestCase):
         # tgt_adj[:, 0, 1] = 1
         tgt_adj[:, 1, 0] = 1
         # Also add self edges
+        if torch.any(tgt_adj != adj):
+            self.fail(f"{tgt_adj} != {adj}")
+
+    def test_far_hops(self):
+        (nodes, adj, weights, num_nodes) = (
+            self.nodes,
+            self.adj,
+            self.weights,
+            self.num_nodes,
+        )
+        self.s = DenseGAM(self.g, edge_selectors=TemporalBackedge(hops=[4]))
+        for i in range(10):
+            _, (nodes, adj, weights, num_nodes) = self.s(
+                self.obs, (nodes, adj, weights, num_nodes)
+            )
+        # hop 1 should start at t-1
+        # hop 5 should start at t-5: 5=>0, 6=>1, etc
+        tgt_adj = torch.zeros_like(adj)
+        tgt_adj[:, 4, 0] = 1
+        tgt_adj[:, 5, 1] = 1
+        tgt_adj[:, 6, 2] = 1
+        tgt_adj[:, 7, 3] = 1
+        tgt_adj[:, 8, 4] = 1
+        tgt_adj[:, 9, 5] = 1
         if torch.any(tgt_adj != adj):
             self.fail(f"{tgt_adj} != {adj}")
 
@@ -533,12 +623,22 @@ class TestDenseEdge(unittest.TestCase):
             self.fail(f"{tgt_adj} != {self.adj}")
 
 
+class Sum(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.tensor([1.0]))
+
+    def forward(self, x):
+        # Returns sum of the first feature of base and neighbor nodes
+        return x[:, 0] + x[:, 5]
+
+
 class TestBernoulliEdge(unittest.TestCase):
     def setUp(self):
         torch.autograd.set_detect_anomaly(True)
-        feats = 11
-        batches = 5
-        N = 10
+        feats = 5
+        batches = 2
+        N = 4
         conv_type = torch_geometric.nn.DenseGCNConv
         self.g = torch_geometric.nn.Sequential(
             "x, adj, weights, B, N",
@@ -561,6 +661,75 @@ class TestBernoulliEdge(unittest.TestCase):
         self.adj = torch.zeros(batches, N, N)
         self.weights = torch.ones(batches, N, N)
         self.num_nodes = torch.zeros(batches, dtype=torch.long)
+
+    def test_update_density(self):
+        self.b = BernoulliEdge(5, torch.nn.Sequential(Sum()))
+        a = torch.tensor([1.5, 2, 0, 0, 2, 0, 3, 1, 0.2])
+        b = torch.tensor([1, 4, 2, 0.1])
+        self.b.update_density(a)
+        self.b.update_density(b)
+        rm = self.b.detach_loss()
+        self.assertTrue(torch.isclose(rm, torch.cat((a, b)).mean()))
+
+    def test_weight_to_adj(self):
+        self.b = BernoulliEdge(5, torch.nn.Sequential(Sum()))
+        self.weights = torch.zeros_like(self.weights)
+        self.weights[0, 2] = 1.0
+        self.weights[1, 2] = 1.0
+        self.weights = self.weights.clamp(*self.b.clamp_range)
+
+        desired = self.adj.clone()
+        desired[0, 2] = 1.0
+        desired[1, 2] = 1.0
+
+        # b_idxs, curr_idx, past_idxs = ([0, 0, 1, 1], [2, 2, 2, 2], [0, 1, 0, 1])
+        self.adj = sample_hard(self.weights, self.b.clamp_range)
+        """
+        self.adj[b_idxs, curr_idx, past_idxs] = sample_hard(
+            self.weights[b_idxs, curr_idx, past_idxs], self.b.clamp_range
+        )
+        """
+        if torch.any(desired != self.adj):
+            self.fail(f"{desired} != {self.adj}")
+
+    def test_indexing(self):
+        self.b = BernoulliEdge(5, torch.nn.Sequential(Sum()))
+
+        self.s = DenseGAM(self.g, edge_selectors=self.b)
+        self.all_obs = [
+            torch.ones_like(self.obs) * 0.1,
+            torch.ones_like(self.obs) * 0.2,
+            torch.ones_like(self.obs) * 0.3,
+        ]
+        self.weights = torch.zeros_like(self.weights).clamp(*self.b.clamp_range)
+
+        (nodes, adj, weights, num_nodes) = (
+            self.nodes,
+            self.adj,
+            self.weights.clone(),
+            self.num_nodes,
+        )
+        for i in range(3):
+            out, (nodes, adj, weights, num_nodes) = self.s(
+                self.all_obs[i], (nodes, adj, weights, num_nodes)
+            )
+
+        # 0: skip
+        # 1: cat(0.2, 0.1) = 0.3
+        # 2: cat(0.3, 0.1) = 0.4, cat(0.3, 0.2) = 0.5
+
+        # 0 -> []
+        # 1 -> [1,0]
+        # 2 -> [2,0], [2,1] # does this order matter?
+        # Network input is __ascending__ e.g. [3,0], [3,1], [3,2]
+        # so
+        desired = self.weights.clone()
+        desired[:, 1, 0] = 0.3
+        desired[:, 2, 0] = 0.4
+        desired[:, 2, 1] = 0.5
+        if torch.any(desired != weights):
+            self.fail(f"{desired} != {weights}")
+        # b <- a should sum to 6
 
     def test_grad_prop(self):
         self.g.grad_test_var = torch.nn.Parameter(torch.tensor([1.0]))
@@ -609,8 +778,8 @@ class TestBernoulliEdge(unittest.TestCase):
         self.optimizer.step()
 
     def test_reg_loss(self):
-        feats = 11
-        batches = 5
+        feats = 5
+        batches = 2
         T = 4
         N = 10
         losses = []

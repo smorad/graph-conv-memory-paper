@@ -37,4 +37,5 @@ TASK:
 DATASET:
   TYPE: PointNav-v1
   SPLIT: val_mini
-  DATA_PATH: /root/habitat-lab/data/datasets/pointnav/gibson/v1/{split}/{split}.json.gz
+  DATA_PATH: "/root/habitat-lab/data/datasets/pointnav/gibson/v1/{split}/{split}.json.gz"
+  SCENES_DIR: "/root/habitat-lab/data/scene_datasets/"

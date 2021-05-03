@@ -21,10 +21,9 @@ import torch
 register_env(StatelessCartPole.__name__, StatelessCartPole)
 cfg_dir = os.path.abspath(os.path.dirname(__file__))
 
-hidden = 64
-seq_len = 100
-gsize = seq_len + 1
-horizon = 64
+hidden = 8
+seq_len = 200
+gsize = 6  # seq_len + 1
 
 
 no_mem: Dict[str, Any] = {
@@ -60,18 +59,14 @@ base_model = {
     "max_seq_len": seq_len,
 }
 temporal_model = deepcopy(base_model)
-temporal_model["custom_model_config"]["edge_selectors"] = TemporalBackedge(num_hops=1)
+temporal_model["custom_model_config"]["edge_selectors"] = TemporalBackedge()
 
 models = [
-    # Base model
-    # {"framestack": False,},
-    # Framestack
-    # {"num_framestacks": 4},
-    # LSTM
-    rnn_model,
-    # {"use_lstm": True, "max_seq_len": seq_len, "lstm_cell_size": hidden},
     # Ours
     temporal_model,
+    # LSTM
+    rnn_model,
+    no_mem,
 ]
 
 
@@ -85,21 +80,20 @@ CFG = {
         "framework": "torch",
         "model": grid_search(models),
         "num_workers": 2,
-        # "num_cpus_per_worker": 16,
-        # "num_envs_per_worker": 8,
+        "num_cpus_per_worker": 2,
+        # "num_envs_per_worker": 4,
         # "num_gpus_per_worker": 0.1,
         "num_gpus": 1,
         "env": StatelessCartPole,
-        "entropy_coeff": 0.001,
-        "vf_loss_coeff": 1e-5,
-        "gamma": 0.99,
+        # "entropy_coeff": 0.001,
+        "vf_loss_coeff": 0.01,
         "horizon": seq_len,
         # "batch_mode": "complete_episodes",
         # "vtrace": False,
-        "lr": 0.0005,
+        # "lr": 0.0005,
     },
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
-        "stop": {"info/num_steps_trained": 1e6},
+        "stop": {"info/num_steps_trained": 5e6},
     },
 }

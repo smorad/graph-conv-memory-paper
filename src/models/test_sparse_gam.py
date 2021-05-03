@@ -58,6 +58,45 @@ class TestSparseGAM(unittest.TestCase):
             self.fail(f"{nodes.shape} != {desired_shape}")
 
 
+class TestBatchBuilder(unittest.TestCase):
+    def setUp(self):
+        B = 3
+        T = 4
+        feat = 5
+        t = 2
+
+        self.nodes = torch.arange(1, B * T * feat + 1).reshape(B, T, feat)
+        # Self edges
+        # a = torch.arange(T)
+        # edges = torch.meshgrid(a, a)
+        a = torch.arange(T, dtype=torch.long)
+        edges = torch.stack((a, a)).unsqueeze(0)
+        # B, 2, T
+        self.edges = edges.repeat(B, 1, 1)
+        self.xs = torch.zeros(B, t, feat)
+
+        self.gnn = torch_geometric.nn.Sequential(
+            "x, edge_index", [(Ident(), "x, edge_index -> x")]
+        )
+
+        self.gam = SparseGAM(self.gnn)
+
+    def test_impossible_edges(self):
+        self.edges[0, :, 0] = torch.tensor([100, 99], dtype=torch.long)
+        # self.gnn.build_batch(self.nodes, self.edge_list, None,
+        out, nodes, edge_list, weights = self.gam(
+            self.xs[:, 0, :].unsqueeze(1), self.nodes, self.edges, None
+        )
+        # import pdb; pdb.set_trace()
+
+    def test_future_edges(self):
+        return
+        self.edges[0, :, 0] = torch.tensor([5, 4], dtype=torch.long)
+        out, nodes, edge_list, weights = self.gam(
+            self.xs[:, 0, :].unsqueeze(1), self.nodes, self.edges, None
+        )
+
+
 class TestTemporalEdge(unittest.TestCase):
     def setUp(self):
         B = 3

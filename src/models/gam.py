@@ -47,7 +47,7 @@ def dense_to_sparse(batch: Batch) -> Batch:
 
 @torch.jit.script
 def overflow(num_nodes: torch.Tensor, N: int):
-    return torch.any(num_nodes + 1 >= N)
+    return torch.any(num_nodes + 1 > N)
 
 
 """
@@ -88,6 +88,8 @@ def overflow(num_nodes: torch.Tensor, N: int):
 
 class DenseGAM(torch.nn.Module):
     """Graph Associative Memory"""
+
+    did_warn = False
 
     def __init__(
         self,
@@ -145,14 +147,12 @@ class DenseGAM(torch.nn.Module):
         ), "N must be equal for adj mat and node mat"
 
         if overflow(num_nodes, N):
-            overflow_mask = num_nodes + 1 >= N
-            # Shift node matrix into the past
-            # by one and forget the zeroth node
-            overflowing_batches = overflow_mask.nonzero().squeeze()
-            nodes = nodes.clone()
-            nodes[overflowing_batches] = torch.roll(nodes[overflowing_batches], -1, -2)
-            num_nodes[overflow_mask] = num_nodes[overflow_mask] - 1
-
+            if not self.did_warn:
+                print("Overflow detected, wrapping around. Will not warn again")
+                self.did_warn = True
+            nodes, adj, weights, num_nodes = self.wrap_overflow(
+                nodes, adj, weights, num_nodes
+            )
         # Add new nodes to the current graph
         # starting at num_nodes
         nodes = nodes.clone()
@@ -179,3 +179,35 @@ class DenseGAM(torch.nn.Module):
 
         num_nodes = num_nodes + 1
         return mx, (nodes, adj, weights, num_nodes)
+
+    def wrap_overflow(self, nodes, adj, weights, num_nodes):
+        """Call this when the node/adj matrices are full. Deletes the zeroth element
+        of the matrices and shifts all the elements up by one, producing a free row
+        at the end.
+
+        Returns new nodes, adj, weights, and num_nodes matrices"""
+        N = nodes.shape[1]
+        overflow_mask = num_nodes + 1 > N
+        # Shift node matrix into the past
+        # by one and forget the zeroth node
+        overflowing_batches = overflow_mask.nonzero().squeeze()
+        nodes = nodes.clone()
+        adj = adj.clone()
+        weights = weights.clone()
+        # Zero entries before shifting
+        nodes[overflowing_batches, 0] = 0
+        adj[overflowing_batches, 0, :] = 0
+        adj[overflowing_batches, :, 0] = 0
+        weights[overflowing_batches, 0, :] = 0
+        weights[overflowing_batches, :, 0] = 0
+        # Roll newly zeroed zeroth entry to final entry
+        nodes[overflowing_batches] = torch.roll(nodes[overflowing_batches], -1, -2)
+        adj[overflowing_batches] = torch.roll(
+            adj[overflowing_batches], (-1, -1), (-1, -2)
+        )
+        weights[overflowing_batches] = torch.roll(
+            weights[overflowing_batches], (-1, -1), (-1, -2)
+        )
+
+        num_nodes[overflow_mask] = num_nodes[overflow_mask] - 1
+        return nodes, adj, weights, num_nodes

@@ -14,10 +14,10 @@ from models.ray_dnc import DNCMemory
 from cfg import base
 
 register_env(RepeatAfterMeEnv.__name__, RepeatAfterMeEnv)
-seq_len = 100
+seq_len = 101
 hidden = 32
 gsize = seq_len + 1
-delay = 50
+delay = 20
 
 # These are specific to our habitat-based environment
 env_cfg = {
@@ -68,10 +68,23 @@ dnc = {
     },
     "max_seq_len": seq_len,
 }
+attn_model = {
+    **no_mem,
+    "use_attention": True,
+    "attention_num_transformer_units": 1,
+    "attention_dim": hidden,
+    "attention_num_heads": 1,
+    "attention_head_dim": hidden,
+    "attention_position_wise_mlp_dim": hidden,
+    "attention_memory_inference": seq_len,
+    "attention_memory_training": seq_len,
+    # "attention_use_n_prev_actions": 1,
+}
 
 models = [
     temporal_model,
     rnn_model,
+    attn_model,
     # dnc,
 ]
 
@@ -96,9 +109,9 @@ CFG = {
         # Use these to prevent losing reward on the final step
         # due to overflow
         # "horizon": seq_len - 1,
-        # "batch_mode": "complete_episodes",
-        # "vtrace": False,
-        "lr": 0.001,
+        "batch_mode": "complete_episodes",
+        "vtrace": False,
+        "lr": 0.0005,
     },
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},

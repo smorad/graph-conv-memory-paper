@@ -49,15 +49,29 @@ RUN apt install -y unzip curl && \
     # test
     curl http://dl.fbaipublicfiles.com/habitat/habitat-test-scenes.zip --output habitat-test-scenes.zip \
     && unzip habitat-test-scenes.zip -d /root/habitat-lab \
-    # objectnav
+    # mp3d objectnav
 	&& curl https://dl.fbaipublicfiles.com/habitat/data/datasets/objectnav/m3d/v1/objectnav_mp3d_v1.zip \
 		--output objectnav_mp3d_v1.zip \ 
 	&& mkdir -p /root/habitat-lab/data/datasets/objectnav/mp3d/v1/ \
 	&& unzip objectnav_mp3d_v1.zip -d /root/habitat-lab/data/datasets/objectnav/mp3d/v1/ \
 	&& rm objectnav_mp3d_v1.zip
+    # mp3d pointnav
+	&& curl https://dl.fbaipublicfiles.com/habitat/data/datasets/pointnav/mp3d/v1/pointnav_mp3d_v1.zip \
+		--output pointnav_mp3d_v1.zip \
+	&& mkdir -p /root/habitat-lab/data/datasets/pointnav/mp3d/v1/ \
+	&& unzip pointnav_mp3d_v1.zip -d /root/habitat-lab/data/datasets/pointnav/mp3d/v1/ \
+	&& rm pointnav_mp3d_v1.zip
+    # gibson pointnav
+	&& curl https://dl.fbaipublicfiles.com/habitat/data/datasets/pointnav/gibson/v1/pointnav_gibson_v1.zip
+		--output pointnav_gibson_v1.zip
+	&& mkdir -p /root/habitat-lab/data/datasets/pointnav/gibson/v1/ \
+	&& unzip pointnav_gibson_v1.zip -d /root/habitat-lab/data/datasets/pointnav/gibson/v1/ \
+	&& rm pointnav_gibson_v1.zip
 
-# Link matterport models to mounted docker volume
-RUN ln -s /root/scene_datasets/mp3d /root/habitat-lab/data/scene_datasets
+# Link matterport and gibson models to mounted docker volume
+RUN ln -s /root/scene_datasets/mp3d /root/habitat-lab/data/scene_datasets \
+	&& ln -s /root/scene_datasets/gibson /root/habitat-lab/data/scene_datasets
+intnav_gibson
 
 # Dev tools
 RUN pip3 install pre-commit && cd /root/vnav && pre-commit && pre-commit autoupdate && pre-commit install

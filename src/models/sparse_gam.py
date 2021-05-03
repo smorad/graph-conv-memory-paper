@@ -50,7 +50,6 @@ class SparseGAM(torch.nn.Module):
                 edge_mask = torch.sum(edge_list[b] <= new_node_idx, dim=0) == 2
                 edge_mask = torch.stack((edge_mask, edge_mask))
                 graph_edge = edge_list[b].masked_select(edge_mask).reshape(2, -1)
-
                 if weights is not None:
                     graph_weight = weights[b, torch.arange(graph_edge.shape[-1])]
                     d = torch_geometric.data.Data(
@@ -110,10 +109,13 @@ class SparseGAM(torch.nn.Module):
         t = x.shape[1]
 
         nodes = torch.cat((nodes, x), dim=-2)
-        # TODO: Edges here
+
         if self.edge_selectors is not None:
             edge_list, weights = self.edge_selectors(nodes, edge_list, weights, B, T, t)
-
+        # Batching will collapse edges into a single [2,j], nodes into
+        # [B * (T + t), feats], etc
+        # So make sure we make all the changes we need to
+        #  nodes/edges/weights before batching and gnn forward
         batch = self.build_batch(
             nodes, edge_list, weights, B, T, t, max_hops
         ).coalesce()

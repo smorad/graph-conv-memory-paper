@@ -11,7 +11,8 @@ def up_to_num_nodes_idxs(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Given num_nodes, returns idxs from adj
     up to but not including num_nodes. I.e.
-    (batches, 0:num_nodes, num_nodes]"""
+    [batches, 0:num_nodes, num_nodes]. Note the order is
+    sorted by (batches, num_nodes, 0:num_nodes) in ascending order"""
     seq_lens = num_nodes.unsqueeze(-1)
     N = adj.shape[-1]
     N_idx = torch.arange(N, device=adj.device).unsqueeze(0)
@@ -20,10 +21,10 @@ def up_to_num_nodes_idxs(
     N_idx = torch.nonzero(N_idx < num_nodes.unsqueeze(1))
     assert N_idx.shape[-1] == 2
     batch_idxs = N_idx[:, 0]
-    i_idxs = N_idx[:, 1]
-    j_idxs = num_nodes[batch_idxs]
+    past_idxs = N_idx[:, 1]
+    curr_idx = num_nodes[batch_idxs]
 
-    return batch_idxs, i_idxs, j_idxs
+    return batch_idxs, past_idxs, curr_idx
 
 
 @torch.jit.script
@@ -50,13 +51,19 @@ class BernoulliEdge(torch.nn.Module):
         self,
         input_size: int = 0,
         model: torch.nn.Sequential = None,
-        clamp_range=(0.001, 0.999),
+        clamp_range=(0.0001, 0.9999),
         backward_edges: bool = False,
+        # gradient_scale: float = 0.5
     ):
         self.clamp_range: Tuple[float] = clamp_range
         self.backward_edges = backward_edges
         super().__init__()
+        # for p in self.parameters():
+        #    p.register_hook(lambda grad: grad / gradient_scale)
+        # init loss
         self.density = torch.tensor(0)
+        self.density_numel = torch.tensor(0)
+        self.detach_loss()
         assert input_size or model, "Must specify either input_size or model"
         if model:
             self.edge_network = model
@@ -79,7 +86,7 @@ class BernoulliEdge(torch.nn.Module):
         """
         return torch.nn.Sequential(
             torch.nn.Linear(2 * input_size, input_size),
-            torch.nn.LeakyReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(input_size, 1),
             torch.nn.Sigmoid(),
         )
@@ -88,8 +95,9 @@ class BernoulliEdge(torch.nn.Module):
         """Returns a copy of the accumulated loss and resets the loss
         and associated gradient to zero. Call this exactly once
         per each backward pass."""
-        loss = self.density.clone()
+        loss = self.density.clone() / self.density_numel
         self.density = torch.tensor(0)
+        self.density_numel = torch.tensor(0)
         return loss
 
     def compute_full_loss(self, nodes: torch.Tensor, B: int):
@@ -113,6 +121,13 @@ class BernoulliEdge(torch.nn.Module):
         batch_out = self.edge_network(batch_in)
         return batch_out.mean()
 
+    def update_density(self, probs):
+        """Updates the density as a moving mean"""
+        # https://math.stackexchange.com/questions/106700/incremental-averageing
+        if self.training:
+            self.density = self.density + probs.sum()
+            self.density_numel = self.density_numel + probs.numel()
+
     def compute_logits2(
         self,
         nodes: torch.Tensor,
@@ -123,24 +138,30 @@ class BernoulliEdge(torch.nn.Module):
         """Computes edge probability between current node and all other nodes.
         Returns a modified copy of the weight matrix containing edge probs"""
         # No edges for a single node
-        if torch.max(num_nodes) == 0:
+        if torch.max(num_nodes) < 1:
             return weights.clamp(*self.clamp_range)
 
-        b_idxs, i_idxs, j_idx = up_to_num_nodes_idxs(weights, num_nodes)
-        left = nodes[b_idxs, j_idx]
-        right = nodes[b_idxs, i_idxs]
+        b_idxs, past_idxs, curr_idx = up_to_num_nodes_idxs(weights, num_nodes)
+        # curr_idx > past_idxs
+        # flows from past_idxs to j
+        # so [j, past_idxs]
+        curr_nodes = nodes[b_idxs, curr_idx]
+        past_nodes = nodes[b_idxs, past_idxs]
 
-        net_in = torch.cat((left, right), dim=-1)
+        net_in = torch.cat((curr_nodes, past_nodes), dim=-1)
         net_out = self.edge_network(net_in)
         probs = net_out.clamp(*self.clamp_range).squeeze()
-        weights[b_idxs, i_idxs, j_idx] = probs
-        self.density = self.density + probs.mean()
+        # TODO: weights[:,0] is not populated, why?
+        weights[b_idxs, curr_idx, past_idxs] = probs
+        self.update_density(probs)
+        # self.density = self.density + probs.mean()
 
         if self.backward_edges:
-            net_in = torch.cat((right, left), dim=-1)
+            net_in = torch.cat((past_nodes, curr_nodes), dim=-1)
             probs = net_out.clamp(*self.clamp_range).squeeze()
-            weights[b_idxs, j_idx, i_idxs] = probs
-            self.density = self.density + probs.mean()
+            weights[b_idxs, past_idxs, curr_idx] = probs
+            self.update_density(probs)
+            # self.density = self.density + probs.mean()
 
         return weights
 
@@ -206,6 +227,11 @@ class BernoulliEdge(torch.nn.Module):
 
         # Weights serve as probabilities that we sample from
         weights = self.compute_logits2(nodes, num_nodes, weights, B)
-        adj = sample_hard(weights, self.clamp_range)
+        # TODO: we should only sample up to num_nodes
+        b_idxs, past_idxs, curr_idx = up_to_num_nodes_idxs(weights, num_nodes)
+        # Only sample entries that exist
+        # otherwise we may accumulate zeros
+        if len(b_idxs) > 0:
+            adj = sample_hard(weights, self.clamp_range)
 
         return adj, weights

@@ -34,6 +34,7 @@ def get_args():
         "--object-store-mem",
         help="Size of object store in bytes. If this is too small ray will complain",
         default=3e10,
+        type=float,
     )
     parser.add_argument(
         "--local",

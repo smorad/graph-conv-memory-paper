@@ -56,6 +56,15 @@ class RayObsGraph(TorchModelV2, nn.Module):
             ],
         ),
         "edge_selectors": None,
+        # Optional network that processes observations before
+        # the GNN. May allow for learning representations that
+        # aggregate better. Note the input to the preprocessor will
+        # already be of shape "gnn_input_size"
+        # Note that the node preprocessor will run after observations are
+        # inserted in the graph. This means the observations can be
+        # reconstructed at the expense of greater memory usage compared
+        # to the preprocessor
+        "preprocessor": None,
         # Whether the prev action should be placed in the observation nodes
         "use_prev_action": False,
         # Add regularization loss based on weight matrix.
@@ -103,22 +112,20 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.build_network(self.cfg)
         print("Full network is:", self)
 
-        assert (
-            model_config["max_seq_len"] <= self.cfg["graph_size"]
-        ), "max_seq_len cannot be more than graph size"
-
         self.cur_val = None
         self.fwd_iters = 0
         self.grad_dots: Dict[str, Any] = {}
         self.visdom_mets: Dict[str, Dict[str, np.ndarray]] = {}
         # if self.cfg["export_gradients"]:
-        self.visdom = visdom.Visdom("http://localhost", port=5050)
+        # self.visdom = visdom.Visdom("http://localhost", port=5050)
 
     def build_network(self, cfg):
         """Builds the GNN and MLPs based on config"""
-        fc = torch.nn.Linear(self.input_dim, cfg["gnn_input_size"])
+        pp = torch.nn.Linear(self.input_dim, cfg["gnn_input_size"])
+        if cfg["preprocessor"]:
+            pp = torch.nn.Sequential(pp, cfg["preprocessor"])
         self.gam = DenseGAM(
-            cfg["gnn"], preprocessor=fc, edge_selectors=self.cfg["edge_selectors"]
+            cfg["gnn"], preprocessor=pp, edge_selectors=self.cfg["edge_selectors"]
         )
 
         self.logit_branch = SlimFC(
@@ -330,8 +337,8 @@ class RayObsGraph(TorchModelV2, nn.Module):
         self.add_grad_dot(logits, "logits")
         self.add_grad_dot(hidden[1], "adj")
         self.add_grad_dot(hidden[2], "weights")
-        self.adj_heatmap(hidden[1])
-        self.report_densities(hidden[1], hidden[2])
+        # self.adj_heatmap(hidden[1])
+        # self.report_densities(hidden[1], hidden[2])
         # self.pose_adj_scatter(hidden[1], hidden[-1])
 
         self.cur_val = values.squeeze(1)
@@ -359,15 +366,18 @@ class RayObsGraph(TorchModelV2, nn.Module):
         if not self.cfg["regularize"]:
             return policy_loss
 
-        # TODO: This loss will not work with new edge_selector logic
-        [bern_edge] = [
-            e for e in self.cfg["edge_selectors"] if isinstance(e, BernoulliEdge)
-        ]
+        # TODO: Double check we indeed have bernoulli edge
+        # and handle sequentials
+        bern_edge = self.cfg["edge_selectors"]
 
         # L_0 regularization loss for bernoulli
         edge_density = bern_edge.detach_loss()
         reg_loss = self.cfg["regularization_coeff"] * edge_density
+        # for logging
+        self.reg_loss = reg_loss.detach().item()
+        self.edge_density = edge_density.detach().item()
         self.add_grad_dot(reg_loss, "reg_loss")
+
         # For next time
         # reg_loss = self.cfg["regularization_coeff"] * edge_density
         # policy_loss[0] = policy_loss[0] * (1 + reg_loss)

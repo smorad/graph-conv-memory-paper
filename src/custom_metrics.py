@@ -33,6 +33,7 @@ def sample_to_input(sample_batch, device):
 class CustomMetrics(DefaultCallbacks):
 
     INFO_METRICS = ["distance_to_goal", "success", "spl", "softspl"]
+    TRAIN_METRICS = ["edge_density", "reg_loss"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -54,6 +55,13 @@ class CustomMetrics(DefaultCallbacks):
 
     def on_train_result(self, *, trainer, result, **kwargs) -> None:
         m = trainer.get_policy().model
+
+        tb_mets = {}
+        for k in self.TRAIN_METRICS:
+            if hasattr(m, k):
+                tb_mets[k] = getattr(m, k)
+
+        result["custom_metrics"].update(tb_mets)
 
         if not hasattr(m, "visdom_mets"):
             return
