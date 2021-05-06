@@ -328,14 +328,24 @@ class TestSparseGAM(unittest.TestCase):
         feats = 11
         batches = 5
         N = 10
-        conv_type = torch_geometric.nn.DenseGCNConv
+        conv_type = torch_geometric.nn.GCNConv
         self.g = torch_geometric.nn.Sequential(
             "x, adj, weights, B, N",
             [
-                (conv_type(feats, feats), "x, adj -> x"),
+                (
+                    DenseToSparse(),
+                    "x, adj, weights, B, N -> x_sp, edge_index, edge_weight, batch_idx",
+                ),
+                (conv_type(feats, feats), "x_sp, edge_index -> x_sp"),
                 (torch.nn.ReLU()),
-                (conv_type(feats, feats), "x, adj -> x"),
+                (conv_type(feats, feats), "x_sp, edge_index -> x_sp"),
                 (torch.nn.ReLU()),
+                (
+                    SparseToDense(),
+                    "x_sp, edge_index, edge_weight, batch_idx, B, N -> x, adj",
+                ),
+                # Return only x not adj
+                (lambda x: x, "x -> x"),
             ],
         )
         self.s = DenseGAM(self.g)
@@ -399,11 +409,21 @@ class TestSparseGAM(unittest.TestCase):
         adj = self.adj.clone()
         weight = self.weights.clone()
 
-        d2s = DenseToSparse()
-        x_sp, edge_index, edge_weight, batch_idx = d2s(x, adj, weight, B, N)
+        seq = torch_geometric.nn.Sequential(
+            "x, adj, weights, B, N",
+            [
+                (
+                    DenseToSparse(),
+                    "x, adj, weights, B, N -> x_sp, edge_index, edge_weight, batch_idx",
+                ),
+                (
+                    SparseToDense(),
+                    "x_sp, edge_index, edge_weight, batch_idx, B, N -> x_d, adj_d",
+                ),
+            ],
+        )
 
-        s2d = SparseToDense()
-        x_d, adj_d = s2d(x_sp, edge_index, edge_weight, batch_idx, B, N)
+        x_d, adj_d = seq(x, adj, weight, B, N)
 
         if torch.any(x_d != self.nodes):
             self.fail(f"x: {x_d} != {self.nodes}")
@@ -425,24 +445,6 @@ class TestSparseGAM(unittest.TestCase):
 
         if torch.any(dense_batch.adj != batch.adj):
             self.fail(f"adj: {dense_batch.adj} != {batch.adj}")
-
-    """
-    def test_dense_to_sparse_sparse_to_dense_with_weights(self):
-        B = self.nodes.shape[0]
-        N = self.nodes.shape[1]
-        self.weights = torch.rand(B,N,N)
-        batch = torch_geometric.data.Batch(x=self.nodes, adj=self.adj, edge_weight=self.weights, B=B, N=N)
-        sparse_batch = self.g.dense_to_sparse(batch)
-        dense_batch = self.g.sparse_to_dense(sparse_batch)
-
-        if torch.any(dense_batch.x != batch.x):
-            self.fail(f'x: {dense_batch.x} != {batch.x}')
-
-        if torch.any(dense_batch.adj!= batch.adj):
-            self.fail(f'adj: {dense_batch.adj} != {batch.adj}')
-        if torch.any(dense_batch.edge_weight != batch.edge_weight):
-            self.fail(f'weight: {dense_batch.weight} != {batch.weight}')
-    """
 
     def test_propagation(self):
         out, (nodes, adj, weights, num_nodes) = self.s(
