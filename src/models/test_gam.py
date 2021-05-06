@@ -1,7 +1,7 @@
 import unittest
 import torch
 import gam
-from gam import DenseGAM
+from gam import DenseGAM, DenseToSparse, SparseToDense
 import torch_geometric
 from edge_selectors.temporal import TemporalBackedge
 from edge_selectors.distance import EuclideanEdge, CosineEdge, SpatialEdge
@@ -390,6 +390,26 @@ class TestSparseGAM(unittest.TestCase):
 
         if torch.any(new_adj != dense_batch.adj):
             self.fail(f"adj: {new_adj} != {dense_batch.adj}")
+
+    def test_DenseToSparse_SparseToDense(self):
+        B = self.nodes.shape[0]
+        N = self.nodes.shape[1]
+
+        x = self.nodes.clone()
+        adj = self.adj.clone()
+        weight = self.weights.clone()
+
+        d2s = DenseToSparse()
+        x_sp, edge_index, edge_weight, batch_idx = d2s(x, adj, weight, B, N)
+
+        s2d = SparseToDense()
+        x_d, adj_d = s2d(x_sp, edge_index, edge_weight, batch_idx, B, N)
+
+        if torch.any(x_d != self.nodes):
+            self.fail(f"x: {x_d} != {self.nodes}")
+
+        if torch.any(adj_d != self.adj):
+            self.fail(f"adj: {adj_d} != {self.adj}")
 
     def test_dense_to_sparse_sparse_to_dense(self):
         B = self.nodes.shape[0]

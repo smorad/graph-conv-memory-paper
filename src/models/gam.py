@@ -16,13 +16,44 @@ def sparse_to_dense(batch: Batch) -> Batch:
     return dense_batch
 
 
+class SparseToDense(torch.nn.Module):
+    """Convert from edge_list to adj. """
+
+    def forward(self, x, edge_index, edge_weight, batch_idx, B, N):
+        # TODO: Should handle weights
+        x = torch_geometric.utils.to_dense_batch(x=x, batch=batch_idx, max_num_nodes=N)[
+            0
+        ]
+        adj = torch_geometric.utils.to_dense_adj(
+            edge_index, batch=batch_idx, max_num_nodes=N
+        )[0]
+        return x, adj
+
+
+class DenseToSparse(torch.nn.Module):
+    """Convert from adj to edge_list while allowing gradients
+    to flow through adj"""
+
+    def forward(self, x, adj, weight, B, N):
+        offset, row, col = torch.nonzero(adj > 0).t()
+        edge_weight = weight[offset, row, col].float()
+        row += offset * N
+        col += offset * N
+        edge_index = torch.stack([row, col], dim=0).long()
+        x = x.view(B * N, x.shape[-1])
+        batch_idx = (
+            torch.arange(0, B, device=x.device).view(-1, 1).repeat(1, N).view(-1)
+        )
+
+        return x, edge_index, edge_weight, batch_idx
+
+
 def dense_to_sparse(batch: Batch) -> Batch:
-    # Convert from adj to edge_list so we can use more types of
-    # convs. Edge weight is required to allow gradients to flow back
-    # into the adjaceny matrix
+    """Convert from adj to edge_list while allow gradients
+    to flow through adj"""
 
     offset, row, col = torch.nonzero(batch.adj > 0).t()
-    edge_weight = batch.adj[offset, row, col].float()
+    # edge_weight = batch.weight[offset, row, col].float()
     row += offset * batch.N
     col += offset * batch.N
     edge_index = torch.stack([row, col], dim=0).long()
@@ -36,7 +67,7 @@ def dense_to_sparse(batch: Batch) -> Batch:
     sparse_batch = Batch(
         x=x,
         edge_index=edge_index,
-        edge_weight=edge_weight,
+        # edge_weight=edge_weight,
         batch=batch_idx,
         B=batch.B,
         N=batch.N,
