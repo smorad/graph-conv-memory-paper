@@ -56,23 +56,24 @@ class NavEnv(habitat.RLEnv):
         # Ray populates these
         # Worker starts at 1 not 0 (unless --local is passed)
         if not hasattr(ray_cfg, "worker_index"):
+            print("Failed to get worker index, using all scenes in all workers")
             return
         split = ray_cfg.worker_index - 1
-        num_splits = ray_cfg.num_workers
+        # We cant fit the entire dataset into 150GB of memory
+        # so add unused splits
+        num_splits = int(ray_cfg.num_workers / ray_cfg.get("scene_proportion", 1))
 
         # Single process cases
         # 0 is --local
         # 1 is a single worker
-        if ray_cfg.worker_index < 2:
+        # if ray_cfg.worker_index < 2:
+        if num_splits < 2:
+            print("Using all scenes")
             return
         # Worker includes the learner, so
 
         dataset = habitat.datasets.make_dataset(hab_cfg.DATASET.TYPE)
         scenes = hab_cfg.DATASET.CONTENT_SCENES
-
-        # Not enough scenes, no need to split
-        if len(scenes) < num_splits:
-            return
 
         if "*" in hab_cfg.DATASET.CONTENT_SCENES:
             scenes = dataset.get_scenes_to_load(hab_cfg.DATASET)
@@ -80,7 +81,6 @@ class NavEnv(habitat.RLEnv):
         scene_splits = [[] for _ in range(num_splits)]
         for idx, scene in enumerate(scenes):
             scene_splits[idx % len(scene_splits)].append(scene)
-
         assert sum(map(len, scene_splits)) == len(scenes)
 
         hab_cfg.defrost()
