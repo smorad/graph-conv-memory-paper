@@ -21,9 +21,9 @@ class DNCMemory(TorchModelV2, nn.Module):
     DEFAULT_CONFIG = {
         "dnc_model": DNC,
         # Number of controller hidden layers
-        "num_hidden_layers": 2,
+        "num_hidden_layers": 1,
         # Number of weights per controller hidden layer
-        "hidden_size": 128,
+        "hidden_size": 64,
         # Number of LSTM units
         "num_layers": 1,
         # Number of read heads, i.e. how many addrs are read at once
@@ -34,6 +34,14 @@ class DNCMemory(TorchModelV2, nn.Module):
         "cell_size": 16,
         # LSTM activation function
         "nonlinearity": "tanh",
+        # Observation goes through this torch.nn.Module before
+        # feeding to the DNC
+        "preprocessor": torch.nn.Sequential(torch.nn.Linear(64, 64), torch.nn.Tanh()),
+        # The output size of the preprocessor
+        # and the input size of the dnc
+        "preprocessor_output_size": 64,
+        # Input size to the preprocessor
+        "preprocessor_output_size": 64,
     }
 
     MEMORY_KEYS = [
@@ -68,15 +76,20 @@ class DNCMemory(TorchModelV2, nn.Module):
         ), "num_layers != 1 has not been implemented yet"
         self.cur_val = None
 
+        self.preprocessor = torch.nn.Sequential(
+            torch.nn.Linear(self.obs_dim, self.cfg["preprocessor_input_size"]),
+            self.cfg["preprocessor"],
+        )
+
         self.logit_branch = SlimFC(
-            in_size=self.obs_dim,
+            in_size=self.cfg["hidden_size"],
             out_size=self.num_outputs,
             activation_fn=None,
             initializer=torch.nn.init.xavier_uniform_,
         )
 
         self.value_branch = SlimFC(
-            in_size=self.obs_dim,
+            in_size=self.cfg["hidden_size"],
             out_size=1,
             activation_fn=None,
             initializer=torch.nn.init.xavier_uniform_,
@@ -86,8 +99,8 @@ class DNCMemory(TorchModelV2, nn.Module):
 
     def get_initial_state(self) -> List[TensorType]:
         ctrl_hidden = [
-            torch.zeros(2, self.cfg["hidden_size"]),
-            torch.zeros(2, self.cfg["hidden_size"]),
+            torch.zeros(self.cfg["num_hidden_layers"], self.cfg["hidden_size"]),
+            torch.zeros(self.cfg["num_hidden_layers"], self.cfg["hidden_size"]),
         ]
         m = self.cfg["nr_cells"]
         r = self.cfg["read_heads"]
@@ -128,10 +141,6 @@ class DNCMemory(TorchModelV2, nn.Module):
         memory_dict: OrderedDict[str, TensorType] = OrderedDict(
             zip(self.MEMORY_KEYS, memory)
         )
-
-        # assert len(ctrl_hidden) == 2
-        # assert len(read_vecs) == 1
-        # assert len(memory_dict) == 6
 
         return ctrl_hidden, memory_dict, read_vecs
 
@@ -184,7 +193,7 @@ class DNCMemory(TorchModelV2, nn.Module):
 
     def build_dnc(self, device_idx: Union[int, None]) -> None:
         self.dnc = self.cfg["dnc_model"](
-            input_size=self.obs_dim,
+            input_size=self.cfg["preprocessor_output_size"],
             hidden_size=self.cfg["hidden_size"],
             num_layers=self.cfg["num_layers"],
             num_hidden_layers=self.cfg["num_hidden_layers"],
@@ -220,7 +229,10 @@ class DNCMemory(TorchModelV2, nn.Module):
         else:
             hidden = self.unpack_state(state)  # type: ignore
 
-        output, hidden = self.dnc(flat, hidden)
+        # Run thru preprocessor before DNC
+        z = self.preprocessor(flat.reshape(B * T, self.obs_dim))
+        z = z.reshape(B, T, self.cfg["preprocessor_output_size"])
+        output, hidden = self.dnc(z, hidden)
         packed_state = self.pack_state(*hidden)
 
         # Compute action/value from output
