@@ -39,7 +39,7 @@ class DNCMemory(TorchModelV2, nn.Module):
         "preprocessor": torch.nn.Sequential(torch.nn.Linear(64, 64), torch.nn.Tanh()),
         # The output size of the preprocessor
         # and the input size of the dnc
-        "preprocessor_output_size": 64,
+        "preprocessor_input_size": 64,
         # Input size to the preprocessor
         "preprocessor_output_size": 64,
     }
