@@ -332,18 +332,12 @@ class TestSparseGAM(unittest.TestCase):
         self.g = torch_geometric.nn.Sequential(
             "x, adj, weights, B, N",
             [
-                (
-                    DenseToSparse(),
-                    "x, adj, weights, B, N -> x_sp, edge_index, edge_weight, batch_idx",
-                ),
+                (DenseToSparse(), "x, adj, -> x_sp, edge_index, batch_idx"),
                 (conv_type(feats, feats), "x_sp, edge_index -> x_sp"),
                 (torch.nn.ReLU()),
                 (conv_type(feats, feats), "x_sp, edge_index -> x_sp"),
                 (torch.nn.ReLU()),
-                (
-                    SparseToDense(),
-                    "x_sp, edge_index, edge_weight, batch_idx, B, N -> x, adj",
-                ),
+                (SparseToDense(), "x_sp, edge_index, batch_idx, B, N -> x, adj"),
                 # Return only x not adj
                 (lambda x: x, "x -> x"),
             ],
@@ -358,6 +352,7 @@ class TestSparseGAM(unittest.TestCase):
         )
         self.obs = torch.ones(batches, feats)
         self.adj = torch.zeros(batches, N, N, dtype=torch.long)
+        self.adj[:, 0:2, 3:4] = 1
         self.weights = torch.ones(batches, N, N)
         self.num_nodes = torch.zeros(batches, dtype=torch.long)
 
@@ -412,14 +407,8 @@ class TestSparseGAM(unittest.TestCase):
         seq = torch_geometric.nn.Sequential(
             "x, adj, weights, B, N",
             [
-                (
-                    DenseToSparse(),
-                    "x, adj, weights, B, N -> x_sp, edge_index, edge_weight, batch_idx",
-                ),
-                (
-                    SparseToDense(),
-                    "x_sp, edge_index, edge_weight, batch_idx, B, N -> x_d, adj_d",
-                ),
+                (DenseToSparse(), "x, adj -> x_sp, edge_index, batch_idx"),
+                (SparseToDense(), "x_sp, edge_index, batch_idx, B, N -> x_d, adj_d"),
             ],
         )
 
