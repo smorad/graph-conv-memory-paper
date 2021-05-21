@@ -1,6 +1,7 @@
 import os
 
 from ray.rllib.agents.impala import ImpalaTrainer
+from ray.rllib.agents.a3c import A3CTrainer
 from ray.rllib.agents.ppo import PPOTrainer
 from ray.tune import register_env
 
@@ -29,7 +30,7 @@ cfg_dir = os.path.abspath(os.path.dirname(__file__))
 env_cfg = {
     # Path to the habitat yaml config, that specifies sensor info,
     # which maps to use, etc.
-    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train_val.yaml",
+    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train.yaml",
     # Habitat preprocessors change the observation space in the simulator
     # These are loaded and run in-order
     "preprocessors": {

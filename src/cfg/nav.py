@@ -15,7 +15,7 @@ import torch_geometric
 import os
 
 seq_len = 128
-hiddens = [64, 32, 16, 8]
+hiddens = [32, 16, 8]
 gsize = seq_len + 1
 act_dim = 3
 
@@ -93,11 +93,11 @@ for hidden in hiddens:
         },
         "max_seq_len": seq_len,
     }
-    graph_models.append(base_model)
+    # graph_models.append(base_model)
 
     temporal_model = deepcopy(base_model)
     temporal_model["custom_model_config"]["edge_selectors"] = TemporalBackedge()
-    graph_models.append(temporal_model)
+    # graph_models.append(temporal_model)
 
     spatial_model = deepcopy(base_model)
     spatial_model["custom_model_config"]["edge_selectors"] = SpatialEdge(
@@ -113,28 +113,39 @@ bernoulli_reg = deepcopy(bernoulli_model)
 bernoulli_reg["custom_model_config"]["regularize"] = True
 bernoulli_reg["custom_model_config"]["regularization_coeff"] = 1.0
 
-dnc_model = {
-    "custom_model": DNCMemory,
-    "custom_model_config": {
-        "hidden_size": hidden,
-        "num_layers": 1,
-        "num_hidden_layers": 1,
-        "read_heads": 4,
-        "nr_cells": gsize,
-        "cell_size": hidden,
-    },
-    "max_seq_len": seq_len,
-}
+dnc_model = grid_search(
+    [
+        {
+            "custom_model": DNCMemory,
+            "custom_model_config": {
+                "hidden_size": hidden,
+                "nr_cells": gsize,
+                "cell_size": hidden,
+                "preprocessor": torch.nn.Sequential(
+                    torch.nn.Linear(hidden, hidden),
+                    torch.nn.Tanh(),
+                    torch.nn.Linear(hidden, hidden),
+                    torch.nn.Tanh(),
+                ),
+                "preprocessor_input_size": hidden,
+                "preprocessor_output_size": hidden,
+            },
+            "max_seq_len": seq_len,
+        }
+        for hidden in hiddens
+    ]
+)
 
 models = [
     # graph_models,
-    attn_model,
-    rnn_model,
+    # attn_model,
+    # rnn_model,
     # no_mem,
+    dnc_model
 ]
 
 CFG = base.CFG
-CFG["ray"]["num_workers"] = 8
+CFG["ray"]["num_workers"] = 2
 CFG["ray"]["model"] = grid_search(models)
 
 # this corresponds to the number of learner GPUs used,
@@ -156,8 +167,8 @@ CFG["tune"] = {
 }
 
 if os.environ.get("DEBUG", False):
-    CFG["ray"]["model"] = bernoulli_reg
-    CFG["ray"]["num_workers"] = 0
+    CFG["ray"]["model"] = dnc_model  # bernoulli_reg
+    CFG["ray"]["num_workers"] = 1
     CFG["ray"]["num_gpus"] = 0.3
     # CFG["ray"]["evaluation_num_workers"] = 1
     # CFG["ray"]["evaluation_interval"] = 1
@@ -167,7 +178,7 @@ if os.environ.get("DEBUG", False):
     # CFG["ray"]["model"]["custom_model_config"]["export_gradients"] = True
     CFG["ray"]["train_batch_size"] = 128
     CFG["ray"]["rollout_fragment_length"] = 64
-    # CFG["tune"] = {
-    #    "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
-    #    "stop": {"info/num_steps_trained": 2048},
-    # }
+    CFG["tune"] = {
+        "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
+        "stop": {"info/num_steps_trained": 128},
+    }

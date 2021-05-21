@@ -23,7 +23,7 @@ cfg_dir = os.path.abspath(os.path.dirname(__file__))
 env_cfg = {
     # Path to the habitat yaml config, that specifies sensor info,
     # which maps to use, etc.
-    "hab_cfg_path": f"{cfg_dir}/pointnav_gibson_train_vae.yaml",
+    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train_vae.yaml",
     # Habitat preprocessors change the observation space in the simulator
     # These are loaded and run in-order
     "preprocessors": {},
@@ -31,12 +31,14 @@ env_cfg = {
     # they are summed together
     # "rewards": {"stop_goal": BasicReward, "goal_path": PathReward},
     "rewards": {},
+    # We can't fit all the scenes into memory, so use fewer
+    # "scene_proportion": 0.5
 }
 
 # Change the path for our validation set
 val_env_cfg = {
     **env_cfg,  # type: ignore
-    "hab_cfg_path": f"{cfg_dir}/pointnav_gibson_val_vae.yaml",
+    "hab_cfg_path": f"{cfg_dir}/objectnav_mp3d_train_val_mini.yaml",
 }
 
 CFG = {
@@ -54,7 +56,7 @@ CFG = {
                 "z_dim": 64,  # grid_search([64, 128]),
                 "depth_weight": 1.0,
                 "rgb_weight": 1.0,
-                "elbo_beta": 0.05,
+                "elbo_beta": 0.01,
             },
         },
         "num_workers": 5,
@@ -70,7 +72,8 @@ CFG = {
         "train_batch_size": 1024,
         "replay_proportion": 5.0,
         "replay_buffer_num_slots": 128,
-        "lr": 0.0005,
+        # "lr": 0.0005,
+        "lr_schedule": [[0, 0.001], [250000, 0.0005], [500000, 0.0001]],
         "env": NavEnv,
         "callbacks": VAEMetrics,
         "evaluation_interval": 10,
@@ -92,4 +95,5 @@ if os.environ.get("DEBUG", False):
     print("-------DEBUG---------")
     CFG["ray"]["num_workers"] = 1
     CFG["ray"]["model"]["custom_model_config"]["z_dim"] = 64
+    CFG["ray"]["env_config"]["scene_proportion"] = 0.05
     print(CFG)

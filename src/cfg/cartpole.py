@@ -2,6 +2,7 @@ import os
 from typing import Dict, Any
 
 from ray.rllib.agents.impala import ImpalaTrainer
+from ray.rllib.agents.a3c import A3CTrainer, A2CTrainer
 from ray.rllib.agents.ppo import PPOTrainer
 from ray.tune import register_env, grid_search
 
@@ -11,6 +12,7 @@ from rewards.path import PathReward
 from ray.rllib.examples.env.stateless_cartpole import StatelessCartPole
 
 from models.ray_graph import RayObsGraph
+from models.ray_dnc import DNCMemory
 from models.edge_selectors.temporal import TemporalBackedge
 
 from copy import deepcopy
@@ -21,58 +23,121 @@ import torch
 register_env(StatelessCartPole.__name__, StatelessCartPole)
 cfg_dir = os.path.abspath(os.path.dirname(__file__))
 
-hidden = 8
-seq_len = 200
-gsize = 6  # seq_len + 1
+hiddens = [32, 16, 8]
+seq_len = 20
+horizon = 200
+gsize = 10
 
 
-no_mem: Dict[str, Any] = {
-    "fcnet_hiddens": [hidden],
-    "fcnet_activation": "tanh",
-}
-rnn_model = {
-    **no_mem,
-    "use_lstm": True,
-    "max_seq_len": seq_len,
-    "lstm_cell_size": hidden,
-    # "lstm_use_prev_action": True,
-}  # type: ignore
-dgc = torch_geometric.nn.Sequential(
-    "x, adj, weights, B, N",
+no_mem = grid_search(
     [
-        (torch_geometric.nn.DenseGraphConv(hidden, hidden), "x, adj -> x"),
-        (torch.nn.Tanh()),
-        (torch_geometric.nn.DenseGraphConv(hidden, hidden), "x, adj -> x"),
-        (torch.nn.Tanh()),
-    ],
+        {
+            "fcnet_hiddens": [hidden, hidden],
+            "fcnet_activation": "tanh",
+        }
+        for hidden in hiddens
+    ]
 )
-dgc.name = "GraphConv_2h"
-base_model = {
-    "custom_model": RayObsGraph,
-    "custom_model_config": {
-        "graph_size": gsize,
-        "gnn_input_size": hidden,
-        "gnn_output_size": hidden,
-        "gnn": dgc,
-        # "use_prev_action": True,
-    },
-    "max_seq_len": seq_len,
-}
-temporal_model = deepcopy(base_model)
-temporal_model["custom_model_config"]["edge_selectors"] = TemporalBackedge()
+
+rnn_model = grid_search(
+    [
+        {
+            "fcnet_hiddens": [hidden, hidden],
+            "fcnet_activation": "tanh",
+            "use_lstm": True,
+            "max_seq_len": seq_len,
+            "lstm_cell_size": hidden,
+            # "lstm_use_prev_action": True,
+        }
+        for hidden in hiddens
+    ]
+)  # type: ignore
+
+dnc_model = grid_search(
+    [
+        {
+            "custom_model": DNCMemory,
+            "custom_model_config": {
+                "hidden_size": hidden,
+                "nr_cells": gsize,
+                "cell_size": hidden,
+                "preprocessor_input_size": hidden,
+                "preprocessor_output_size": hidden,
+                "preprocessor": torch.nn.Sequential(
+                    torch.nn.Linear(hidden, hidden),
+                    torch.nn.Tanh(),
+                    torch.nn.Linear(hidden, hidden),
+                    torch.nn.Tanh(),
+                ),
+            },
+            "max_seq_len": seq_len,
+        }
+        for hidden in hiddens
+    ]
+)
+
+attn_model = grid_search(
+    [
+        {
+            "fcnet_hiddens": [hidden, hidden],
+            "fcnet_activation": "tanh",
+            "use_attention": True,
+            "attention_num_transformer_units": 1,
+            "attention_dim": hidden,
+            "attention_num_heads": 1,
+            "attention_head_dim": hidden,
+            "attention_position_wise_mlp_dim": hidden,
+            "attention_memory_inference": seq_len,
+            "attention_memory_training": seq_len,
+            # "attention_use_n_prev_actions": 1,
+        }
+        for hidden in hiddens
+    ]
+)
+
+
+graph_models = []
+for hidden in hiddens:
+    dgc = torch_geometric.nn.Sequential(
+        "x, adj, weights, B, N",
+        [
+            # Mean and sum aggregation perform roughly the same
+            # Preprocessor with 1 layer did not help
+            (torch_geometric.nn.DenseGraphConv(hidden, hidden), "x, adj -> x"),
+            (torch.nn.Tanh()),
+            (torch_geometric.nn.DenseGraphConv(hidden, hidden), "x, adj -> x"),
+            (torch.nn.Tanh()),
+        ],
+    )
+    dgc.name = "GraphConv_2h"
+    temporal_model = {
+        "custom_model": RayObsGraph,
+        "custom_model_config": {
+            "graph_size": gsize,
+            "gnn_input_size": hidden,
+            "gnn_output_size": hidden,
+            "gnn": dgc,
+            # 2 edges outperforms 1 when actions are known
+            # 1 outperforms 2 when actions are not known
+            "edge_selectors": TemporalBackedge([1, 2]),
+            # "use_prev_action": True,
+        },
+        "max_seq_len": seq_len,
+    }
+    graph_models.append(temporal_model)
 
 models = [
-    # Ours
-    temporal_model,
-    # LSTM
+    *graph_models,
     rnn_model,
+    attn_model,
     no_mem,
+    dnc_model,
 ]
 
 
 CFG = {
     # Our specific trainer type
-    "ray_trainer": ImpalaTrainer,
+    "ray_trainer": PPOTrainer,
     # Ray specific config sent to ray.tune or ray.rllib trainer
     "ray": {
         # These are rllib/ray specific
@@ -81,19 +146,17 @@ CFG = {
         "model": grid_search(models),
         "num_workers": 2,
         "num_cpus_per_worker": 2,
-        # "num_envs_per_worker": 4,
-        # "num_gpus_per_worker": 0.1,
-        "num_gpus": 1,
+        "num_gpus": 0.2,
         "env": StatelessCartPole,
-        # "entropy_coeff": 0.001,
-        "vf_loss_coeff": 0.01,
-        "horizon": seq_len,
-        # "batch_mode": "complete_episodes",
-        # "vtrace": False,
+        "vf_loss_coeff": 1e-5,
+        "horizon": horizon,
         # "lr": 0.0005,
+        # "train_batch_size": 2000,
+        # "num_sgd_iter": 15,
+        # "sgd_minibatch_size": 100,
     },
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
-        "stop": {"info/num_steps_trained": 5e6},
+        "stop": {"info/num_steps_trained": 1e6},
     },
 }
