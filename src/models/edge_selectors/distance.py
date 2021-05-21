@@ -53,14 +53,20 @@ class CosineEdge(Distance):
 
 
 class SpatialEdge(Distance):
-    """Euclidean distance representing the physical distance between two observations"""
+    """Euclidean distance representing the physical distance between two observations.
+    Uses the slices a_pose_slice and b_pose_slice to extract the respective
+    poses from the latent vectors"""
 
-    def __init__(self, max_distance, pose_slice):
+    def __init__(self, max_distance, a_pose_slice, b_pose_slice=None):
         super().__init__(max_distance)
-        self.pose_slice = pose_slice
+        self.a_pose_slice = a_pose_slice
+        if b_pose_slice:
+            self.b_pose_slice = b_pose_slice
+        else:
+            self.b_pose_slice = a_pose_slice
 
     def dist_fn(self, a, b):
         a = torch.cat([a.unsqueeze(1)] * b.shape[1], dim=1)
-        ra = a[:, :, self.pose_slice]
-        rb = b[:, :, self.pose_slice]
+        ra = a[:, :, self.a_pose_slice]
+        rb = b[:, :, self.b_pose_slice]
         return torch.cdist(ra, rb).mean(dim=1)
