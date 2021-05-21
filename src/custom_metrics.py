@@ -49,6 +49,9 @@ class CustomMetrics(DefaultCallbacks):
     def on_learn_on_batch(self, *, policy, train_batch, result: dict, **kwargs) -> None:
         result["action_dist"] = train_batch["actions"]
         result["act_sum"] = 1.0
+
+        # num_params = sum(p.numel() for p in policy.model.parameters() if p.requires_grad)
+        # print(f'\n\nPOLICY {policy.model} # OF PARAMS: {num_params}\n\n')
         # input = sample_to_input(train_batch, policy.model.device)
         # print('cb', input[-1].shape)
         # self.writer.add_graph(policy.model, input)
@@ -60,6 +63,9 @@ class CustomMetrics(DefaultCallbacks):
         for k in self.TRAIN_METRICS:
             if hasattr(m, k):
                 tb_mets[k] = getattr(m, k)
+
+        num_params = sum(p.numel() for p in m.parameters() if p.requires_grad)
+        result["custom_metrics"]["num_params"] = num_params
 
         result["custom_metrics"].update(tb_mets)
 
@@ -169,7 +175,7 @@ class VAEMetrics(DefaultCallbacks):
         }
 
     def log_images(self, m):
-        for k, imgs in m.visdom_imgs.items():
+        for k, imgs in m.visdom_imgs.copy().items():
             key = self.PREFIX + k
 
             if key not in self.window_map:
