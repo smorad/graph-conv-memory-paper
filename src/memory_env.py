@@ -7,12 +7,18 @@ DEFAULT_CFG = {
     "num_matches": 2,
     "num_cards": 8,
     "noise": 0,
-    "mode": "view_current",  # Either view_all or view_current
-    "discrete": False,
+    "mode": "view_flipped",  # Either view_all or view_current or view_flipped
+    "discrete": True,
     "episode_length": 100,
+    # Provide a small negative reward each timestep
+    "negative_reward": False,
 }
 
 
+# IT DOESNT KNOW IF IT HAS A CARD FLIPPED!
+# so make sure the obs space is num_matches large
+# that shows all flipped cards
+# OR connect edges to other flipped card?
 class MemoryEnv(gym.Env):
     """Card memory environment.
 
@@ -26,61 +32,89 @@ class MemoryEnv(gym.Env):
     +1 for a match
     """
 
+    def init_view_all(self):
+        if self.cfg["discrete"]:
+            self.observation_space = gym.spaces.Dict(
+                {
+                    "cards": gym.spaces.MultiDiscrete(
+                        [self.cfg["num_matches"] * self.cfg["dim"]]
+                        * self.cfg["num_cards"]
+                    ),
+                }
+            )
+        else:
+            self.observation_space = gym.spaces.Dict(
+                {
+                    "cards": gym.spaces.Box(
+                        shape=(self.cfg["num_cards"], self.cfg["dim"]),
+                        high=1,
+                        low=0,
+                        dtype=np.float32,
+                    ),
+                }
+            )
+        self.action_space = gym.spaces.Discrete(self.cfg["num_cards"])
+
+    def init_view_current(self):
+        if self.cfg["discrete"]:
+            self.observation_space = gym.spaces.Dict(
+                {
+                    "card": gym.spaces.Discrete(
+                        self.cfg["num_cards"] // self.cfg["num_matches"] + 1
+                    ),
+                    "pointer_pos": gym.spaces.Discrete(self.cfg["num_cards"]),
+                }
+            )
+        else:
+            self.observation_space = gym.spaces.Dict(
+                {
+                    "card": gym.spaces.Box(
+                        shape=(self.cfg["dim"],),
+                        high=1,
+                        low=0,
+                        dtype=np.float32,
+                    ),
+                    "pointer_pos": gym.spaces.Box(
+                        shape=(1,), high=self.cfg["num_cards"], low=0, dtype=np.float32
+                    ),
+                }
+            )
+        self.action_space = gym.spaces.Discrete(3)  # Left right flip
+
+    def init_view_flipped(self):
+        if self.cfg["discrete"]:
+            assert self.cfg["dim"] == 1
+            self.observation_space = gym.spaces.Dict(
+                {
+                    "card": gym.spaces.Discrete(
+                        self.cfg["num_cards"] // self.cfg["num_matches"] + 1
+                    ),
+                    "flipped_cards": gym.spaces.MultiDiscrete(
+                        [self.cfg["num_cards"] // self.cfg["num_matches"] + 1]
+                        * (self.cfg["num_matches"])
+                    ),
+                    "flipped_pos": gym.spaces.MultiDiscrete(
+                        [self.cfg["num_cards"]] * (self.cfg["num_matches"])
+                    ),
+                    "pointer_pos": gym.spaces.Discrete(self.cfg["num_cards"]),
+                }
+            )
+        else:
+            raise NotImplementedError()
+
+        self.action_space = gym.spaces.Discrete(3)  # Left right flip
+
     def __init__(self, cfg={}):
         self.cfg = dict(DEFAULT_CFG, **cfg)
         assert self.cfg["num_cards"] % self.cfg["num_matches"] == 0
-        assert self.cfg["mode"] in ["view_all", "view_current"]
+        assert self.cfg["mode"] in ["view_all", "view_current", "view_flipped"]
 
         if self.cfg["mode"] == "view_all":
-            if self.cfg["discrete"]:
-                self.observation_space = gym.spaces.Dict(
-                    {
-                        "cards": gym.spaces.MultiDiscrete(
-                            [self.cfg["num_matches"] * self.cfg["dim"]]
-                            * self.cfg["num_cards"]
-                        ),
-                    }
-                )
-            else:
-                self.observation_space = gym.spaces.Dict(
-                    {
-                        "cards": gym.spaces.Box(
-                            shape=(self.cfg["num_cards"], self.cfg["dim"]),
-                            high=1,
-                            low=0,
-                            dtype=np.float32,
-                        ),
-                    }
-                )
-            self.action_space = gym.spaces.Discrete(self.cfg["num_cards"])
-        else:
-            if self.cfg["discrete"]:
-                self.observation_space = gym.spaces.Dict(
-                    {
-                        "card": gym.spaces.Discrete(
-                            self.cfg["num_cards"] // self.cfg["num_matches"] + 1
-                        ),
-                        "pointer_pos": gym.spaces.Discrete(self.cfg["num_cards"]),
-                    }
-                )
-            else:
-                self.observation_space = gym.spaces.Dict(
-                    {
-                        "card": gym.spaces.Box(
-                            shape=(self.cfg["dim"],),
-                            high=1,
-                            low=0,
-                            dtype=np.float32,
-                        ),
-                        "pointer_pos": gym.spaces.Box(
-                            shape=(1,),
-                            high=self.cfg["num_cards"],
-                            low=0,
-                            dtype=np.float32,
-                        ),
-                    }
-                )
-            self.action_space = gym.spaces.Discrete(3)  # Left right flip
+            self.init_view_all()
+        elif self.cfg["mode"] == "view_current":
+            self.init_view_current()
+        elif self.cfg["mode"] == "view_flipped":
+            self.init_view_flipped()
 
     def get_obs(self, mode):
         visible_cards = np.ma.masked_array(self.cards)
@@ -88,7 +122,7 @@ class MemoryEnv(gym.Env):
         visible_cards = visible_cards.filled(0)
         if mode == "view_all":
             return OrderedDict([("cards", visible_cards)])
-        else:
+        elif mode == "view_current":
             if self.cfg["discrete"]:
                 pp = self.view_ptr
             else:
@@ -97,6 +131,38 @@ class MemoryEnv(gym.Env):
             return OrderedDict(
                 [("card", visible_cards[self.view_ptr]), ("pointer_pos", pp)]
             )
+        elif mode == "view_flipped":
+            if self.cfg["discrete"]:
+                # Only view flipped and unmatched cards
+                flip_in_play_idx = self.flipped * ~self.matched
+                flip_in_play = self.cards[flip_in_play_idx]
+                # Zero pad so it's always the same size
+                flip_in_play = np.pad(
+                    flip_in_play,
+                    (self.cfg["num_matches"] - len(flip_in_play), 0),
+                    "constant",
+                )
+                [flip_in_play_pos] = flip_in_play_idx.nonzero()
+                flip_in_play_pos = np.pad(
+                    flip_in_play_pos,
+                    # TODO should we use a nonzero value?
+                    # network should be able to associate zero
+                    # card value with zero pos value
+                    (self.cfg["num_matches"] - len(flip_in_play_pos), 0),
+                    "constant",
+                )
+                assert len(flip_in_play_pos) == len(flip_in_play)
+
+                return OrderedDict(
+                    [
+                        ("card", visible_cards[self.view_ptr]),
+                        ("flipped_cards", flip_in_play),
+                        ("flipped_pos", flip_in_play_pos),
+                        ("pointer_pos", self.view_ptr),
+                    ]
+                )
+            else:
+                raise NotImplementedError()
 
     def flip_card(self, idx_to_flip):
         """Flips the card at the given index.
@@ -118,7 +184,10 @@ class MemoryEnv(gym.Env):
 
     def get_reward(self):
         success_reward = 1.0 / (self.cfg["num_cards"] // self.cfg["num_matches"])
-        fail_reward = -1.0 / self.cfg["episode_length"]
+        if self.cfg["negative_reward"]:
+            fail_reward = -1.0 / self.cfg["episode_length"]
+        else:
+            fail_reward = 0
         # Let's bound reward to -1, 1
         reward = 0
         # If all three are flipped, mark as matched and give reward
@@ -179,7 +248,7 @@ class MemoryEnv(gym.Env):
         self.flipped = np.zeros(self.cfg["num_cards"], dtype=bool)
         self.matched = np.zeros(self.cfg["num_cards"], dtype=bool)
 
-        if self.cfg["mode"] == "view_current":
+        if self.cfg["mode"] in ["view_current", "view_flipped"]:
             self.view_ptr = 0
 
         self.tstep = 0
@@ -189,10 +258,14 @@ class MemoryEnv(gym.Env):
     def draw(self):
         if self.cfg["mode"] == "view_all":
             print(self.get_obs(self.cfg["mode"]))
-        else:
+        elif self.cfg["mode"] == "view_current":
             view = self.get_obs("view_all")["cards"]
             print(view)
             print(self.view_ptr)
+        elif self.cfg["mode"] == "view_flipped":
+            obs = self.get_obs(self.cfg["mode"])
+            for k, v in obs.items():
+                print(f"{k}: {v}")
 
     def play(self):
         while True:
