@@ -25,7 +25,8 @@ class NavEnv(habitat.RLEnv):
         self.ray_cfg = cfg
         self.rewards = [reward_cls() for reward_cls in cfg["rewards"].values()]
         # Use only a subset of scenes to avoid memory pressure
-        self.select_scene_subset(cfg, self.hab_cfg)
+        if self.ray_cfg.get("worker_split_scenes", False):
+            self.select_scene_subset(cfg, self.hab_cfg)
         # TODO: Set different random seeds for different workers (based on pid maybe)
         super().__init__(self.hab_cfg)
 
