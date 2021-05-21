@@ -124,7 +124,7 @@ def train(args, cfg):
         object_store_memory=args.object_store_mem,
     )
 
-    start_tb()
+    # start_tb()
     reporter = tune.CLIReporter(
         metric_columns=["episode_reward_mean", "training_iteration", "timers"],
         parameter_columns=[],
