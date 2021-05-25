@@ -150,6 +150,7 @@ CFG["ray"]["rollout_fragment_length"] = seq_len
 CFG["tune"] = {
     "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
     "stop": {"info/num_steps_trained": 10e6},
+    "num_samples": 3,
 }
 
 if os.environ.get("DEBUG", False):
