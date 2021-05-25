@@ -6,6 +6,8 @@ from typing import Union, Dict, List, Tuple
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.torch.misc import SlimFC
 from ray.rllib.utils.typing import ModelConfigDict, TensorType
+from ray.rllib.policy.view_requirement import ViewRequirement
+from ray.rllib.utils.torch_ops import one_hot
 
 try:
     from dnc import DNC
@@ -42,6 +44,8 @@ class DNCMemory(TorchModelV2, nn.Module):
         "preprocessor_input_size": 64,
         # Input size to the preprocessor
         "preprocessor_output_size": 64,
+        # Whether or not to concat the prev action to the obs vector
+        "use_prev_action": False,
     }
 
     MEMORY_KEYS = [
@@ -68,16 +72,25 @@ class DNCMemory(TorchModelV2, nn.Module):
         )
         self.num_outputs = num_outputs
         self.obs_dim = gym.spaces.utils.flatdim(obs_space)
+        self.act_space = action_space
         self.act_dim = gym.spaces.utils.flatdim(action_space)
 
+        self.input_dim = self.obs_dim
         self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
+
+        if self.cfg["use_prev_action"]:
+            self.input_dim += self.act_dim
+            self.view_requirements["prev_actions"] = ViewRequirement(
+                "actions", space=self.action_space, shift=-1
+            )
+
         assert (
             self.cfg["num_layers"] == 1
         ), "num_layers != 1 has not been implemented yet"
         self.cur_val = None
 
         self.preprocessor = torch.nn.Sequential(
-            torch.nn.Linear(self.obs_dim, self.cfg["preprocessor_input_size"]),
+            torch.nn.Linear(self.input_dim, self.cfg["preprocessor_input_size"]),
             self.cfg["preprocessor"],
         )
 
@@ -211,7 +224,13 @@ class DNCMemory(TorchModelV2, nn.Module):
         seq_lens: TensorType,
     ) -> Tuple[TensorType, List[TensorType]]:
 
-        flat = input_dict["obs_flat"]
+        if self.cfg["use_prev_action"]:
+            prev_acts = one_hot(input_dict["prev_actions"].float(), self.act_space)
+            prev_acts = prev_acts.reshape(-1, self.act_dim)
+            flat = torch.cat((input_dict["obs_flat"], prev_acts), dim=-1)
+        else:
+            flat = input_dict["obs_flat"]
+
         # Batch and Time
         # Forward expects outputs as [B, T, logits]
         B = len(seq_lens)
@@ -230,7 +249,7 @@ class DNCMemory(TorchModelV2, nn.Module):
             hidden = self.unpack_state(state)  # type: ignore
 
         # Run thru preprocessor before DNC
-        z = self.preprocessor(flat.reshape(B * T, self.obs_dim))
+        z = self.preprocessor(flat.reshape(B * T, self.input_dim))
         z = z.reshape(B, T, self.cfg["preprocessor_output_size"])
         output, hidden = self.dnc(z, hidden)
         packed_state = self.pack_state(*hidden)
