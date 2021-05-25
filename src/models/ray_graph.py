@@ -55,7 +55,14 @@ class RayObsGraph(TorchModelV2, nn.Module):
                 torch.nn.Tanh(),
             ],
         ),
+        # Torch.nn.module used for determining edges between nodes.
+        # You can chain multiple modules together use
+        # torch_geometric.nn.Sequential
         "edge_selectors": None,
+        # Whether the final output is pooled (a single node). If pooled,
+        # we will not try to extract the hidden representation of the current node
+        # and instead just use the raw pooled representation
+        "pooled": False,
         # Optional network that processes observations before
         # the GNN. May allow for learning representations that
         # aggregate better. Note the input to the preprocessor will
@@ -125,7 +132,10 @@ class RayObsGraph(TorchModelV2, nn.Module):
         if cfg["preprocessor"]:
             pp = torch.nn.Sequential(pp, cfg["preprocessor"])
         self.gam = DenseGAM(
-            cfg["gnn"], preprocessor=pp, edge_selectors=self.cfg["edge_selectors"]
+            cfg["gnn"],
+            preprocessor=pp,
+            edge_selectors=self.cfg["edge_selectors"],
+            pooled=self.cfg["pooled"],
         )
 
         self.logit_branch = SlimFC(
@@ -199,7 +209,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         flat_views = {key: flat[:, starts[key] : ends[key]] for key in obs}
         return flat_views
 
-    def get_flat_idxs(self, obs, flat):
+    def get_flat_idxs(self, obs):
         """Given the obs dict and flat obs, return a dict of [start, end) slices
         that index the obs keys into the flat vector"""
         ends = {}
@@ -323,7 +333,6 @@ class RayObsGraph(TorchModelV2, nn.Module):
             adj_mats = adj_mats.long()
 
         # Push thru pre-gam layers
-        # flat = self.fcnet(flat.reshape(B * T, self.input_dim)).reshape(B, T, self.cfg["gcn_hidden_size"])
         hidden = (nodes, adj_mats, weights, num_nodes)
         for t in range(T):
             out, hidden = self.gam(flat[:, t, :], hidden)
@@ -366,9 +375,16 @@ class RayObsGraph(TorchModelV2, nn.Module):
         if not self.cfg["regularize"]:
             return policy_loss
 
-        # TODO: Double check we indeed have bernoulli edge
-        # and handle sequentials
-        bern_edge = self.cfg["edge_selectors"]
+        if isinstance(
+            self.cfg["edge_selectors"], torch_geometric.nn.Sequential
+        ) or isinstance(self.cfg["edge_selectors"], torch.nn.Sequential):
+            for module in self.cfg["edge_selectors"]:
+                if isinstance(module, BernoulliEdge):
+                    bern_edge = module
+                    break
+
+        else:
+            bern_edge = self.cfg["edge_selectors"]
 
         # L_0 regularization loss for bernoulli
         edge_density = bern_edge.detach_loss()
