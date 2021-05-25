@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Dict, Any
+from typing import Dict, Any, List
 from cfg import base
 from custom_metrics import EvalMetrics
 from models.ray_graph import RayObsGraph
@@ -20,48 +20,42 @@ gsize = seq_len + 1
 act_dim = 3
 
 
-no_mem: Dict[str, Any] = grid_search(
-    [
-        {
-            "fcnet_hiddens": [hidden, hidden],
-            "fcnet_activation": "tanh",
-        }
-        for hidden in hiddens
-    ]
-)
+no_mem: List[Any] = [
+    {
+        "fcnet_hiddens": [hidden, hidden],
+        "fcnet_activation": "tanh",
+    }
+    for hidden in hiddens
+]
 
-rnn_model = grid_search(
-    [
-        {
-            "fcnet_hiddens": [hidden, hidden],
-            "fcnet_activation": "tanh",
-            "use_lstm": True,
-            "max_seq_len": seq_len,
-            "lstm_cell_size": hidden,
-            "lstm_use_prev_action": True,
-        }
-        for hidden in hiddens
-    ]
-)
+rnn_model = [
+    {
+        "fcnet_hiddens": [hidden, hidden],
+        "fcnet_activation": "tanh",
+        "use_lstm": True,
+        "max_seq_len": seq_len,
+        "lstm_cell_size": hidden,
+        "lstm_use_prev_action": True,
+    }
+    for hidden in hiddens
+]
 
-attn_model = grid_search(
-    [
-        {
-            "fcnet_hiddens": [hidden, hidden],
-            "fcnet_activation": "tanh",
-            "use_attention": True,
-            "attention_num_transformer_units": 1,
-            "attention_dim": hidden,
-            "attention_num_heads": 1,
-            "attention_head_dim": hidden,
-            "attention_position_wise_mlp_dim": hidden,
-            "attention_memory_inference": seq_len,
-            "attention_memory_training": seq_len,
-            "attention_use_n_prev_actions": 1,
-        }
-        for hidden in hiddens
-    ]
-)
+attn_model = [
+    {
+        "fcnet_hiddens": [hidden, hidden],
+        "fcnet_activation": "tanh",
+        "use_attention": True,
+        "attention_num_transformer_units": 1,
+        "attention_dim": hidden,
+        "attention_num_heads": 1,
+        "attention_head_dim": hidden,
+        "attention_position_wise_mlp_dim": hidden,
+        "attention_memory_inference": seq_len,
+        "attention_memory_training": seq_len,
+        "attention_use_n_prev_actions": seq_len,
+    }
+    for hidden in hiddens
+]
 
 graph_models = []
 for hidden in hiddens:
@@ -93,56 +87,48 @@ for hidden in hiddens:
         },
         "max_seq_len": seq_len,
     }
-    # graph_models.append(base_model)
+    graph_models.append(base_model)
 
     temporal_model = deepcopy(base_model)
     temporal_model["custom_model_config"]["edge_selectors"] = TemporalBackedge()
-    # graph_models.append(temporal_model)
+    graph_models.append(temporal_model)
 
     spatial_model = deepcopy(base_model)
     spatial_model["custom_model_config"]["edge_selectors"] = SpatialEdge(
-        max_distance=0.25, pose_slice=slice(2, 4)
+        max_distance=0.25, a_pose_slice=slice(2, 4)
     )
     graph_models.append(spatial_model)
 
-graph_models = grid_search(graph_models)
+    vae_model = deepcopy(base_model)
+    spatial_model["custom_model_config"]["edge_selectors"] = SpatialEdge(
+        max_distance=0.1, a_pose_slice=slice(3, 67)
+    )
+    graph_models.append(vae_model)
 
-bernoulli_model = deepcopy(base_model)
-bernoulli_model["custom_model_config"]["edge_selectors"] = BernoulliEdge(71)
-bernoulli_reg = deepcopy(bernoulli_model)
-bernoulli_reg["custom_model_config"]["regularize"] = True
-bernoulli_reg["custom_model_config"]["regularization_coeff"] = 1.0
 
-dnc_model = grid_search(
-    [
-        {
-            "custom_model": DNCMemory,
-            "custom_model_config": {
-                "hidden_size": hidden,
-                "nr_cells": gsize,
-                "cell_size": hidden,
-                "preprocessor": torch.nn.Sequential(
-                    torch.nn.Linear(hidden, hidden),
-                    torch.nn.Tanh(),
-                    torch.nn.Linear(hidden, hidden),
-                    torch.nn.Tanh(),
-                ),
-                "preprocessor_input_size": hidden,
-                "preprocessor_output_size": hidden,
-            },
-            "max_seq_len": seq_len,
-        }
-        for hidden in hiddens
-    ]
-)
-
-models = [
-    # graph_models,
-    # attn_model,
-    # rnn_model,
-    # no_mem,
-    dnc_model
+dnc_model = [
+    {
+        "custom_model": DNCMemory,
+        "custom_model_config": {
+            "hidden_size": hidden,
+            "nr_cells": gsize,
+            "cell_size": hidden,
+            "preprocessor": torch.nn.Sequential(
+                torch.nn.Linear(hidden, hidden),
+                torch.nn.Tanh(),
+                torch.nn.Linear(hidden, hidden),
+                torch.nn.Tanh(),
+            ),
+            "preprocessor_input_size": hidden,
+            "preprocessor_output_size": hidden,
+            "use_prev_action": True,
+        },
+        "max_seq_len": seq_len,
+    }
+    for hidden in hiddens
 ]
+
+models = [*graph_models, *attn_model, *rnn_model, *no_mem, *dnc_model]
 
 CFG = base.CFG
 CFG["ray"]["num_workers"] = 2
@@ -167,7 +153,7 @@ CFG["tune"] = {
 }
 
 if os.environ.get("DEBUG", False):
-    CFG["ray"]["model"] = dnc_model  # bernoulli_reg
+    CFG["ray"]["model"] = dnc_model[0]  # graph_models[0]# bernoulli_reg
     CFG["ray"]["num_workers"] = 1
     CFG["ray"]["num_gpus"] = 0.3
     # CFG["ray"]["evaluation_num_workers"] = 1
@@ -181,4 +167,5 @@ if os.environ.get("DEBUG", False):
     CFG["tune"] = {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
         "stop": {"info/num_steps_trained": 128},
+        "num_samples": 3,
     }
