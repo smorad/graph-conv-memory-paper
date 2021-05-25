@@ -100,7 +100,7 @@ for hidden in hiddens:
     graph_models.append(spatial_model)
 
     vae_model = deepcopy(base_model)
-    spatial_model["custom_model_config"]["edge_selectors"] = SpatialEdge(
+    vae_model["custom_model_config"]["edge_selectors"] = SpatialEdge(
         max_distance=0.1, a_pose_slice=slice(3, 67)
     )
     graph_models.append(vae_model)
@@ -128,10 +128,10 @@ dnc_model = [
     for hidden in hiddens
 ]
 
-models = [*graph_models, *attn_model, *rnn_model, *no_mem, *dnc_model]
+models = [*graph_models, *attn_model, *rnn_model, *no_mem]  # *dnc_model]
 
 CFG = base.CFG
-CFG["ray"]["num_workers"] = 2
+CFG["ray"]["num_workers"] = 4
 CFG["ray"]["model"] = grid_search(models)
 
 # this corresponds to the number of learner GPUs used,
