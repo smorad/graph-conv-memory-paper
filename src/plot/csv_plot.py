@@ -6,7 +6,7 @@ import itertools
 import functools
 import matplotlib.pyplot as plt
 from matplotlib import rc
-#rc('text', usetex=True)
+rc('text', usetex=True)
 
 
 
@@ -73,8 +73,10 @@ def main():
     # Scale x axis
     df.index *= args.replay + 1
     # Smooth
-    df = df.rolling(args.smooth).mean()
+    df = df.rolling(args.smooth, min_periods=1).mean()
     sb.set_theme()
+    sb.set_context('talk')
+    #import pdb; pdb.set_trace()
     for i, trial in enumerate(df.columns.levels[0]):
         plot_kwargs = {
             "x": args.x_label,
@@ -93,6 +95,12 @@ def main():
             pt.set(xticklabels=[])
             pt.set(xlabel=None)
 
+        if args.domain:
+            plt.xlim(*args.domain)
+        if args.range:
+            plt.ylim(*args.range)
+
+    plt.tight_layout()
     if args.output:
         plt.savefig(args.output)
 
