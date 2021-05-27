@@ -87,11 +87,11 @@ for hidden in hiddens:
         },
         "max_seq_len": seq_len,
     }
-    graph_models.append(base_model)
+    # graph_models.append(base_model)
 
     temporal_model = deepcopy(base_model)
     temporal_model["custom_model_config"]["edge_selectors"] = TemporalBackedge()
-    graph_models.append(temporal_model)
+    # graph_models.append(temporal_model)
 
     spatial_model = deepcopy(base_model)
     spatial_model["custom_model_config"]["edge_selectors"] = SpatialEdge(
@@ -103,7 +103,7 @@ for hidden in hiddens:
     vae_model["custom_model_config"]["edge_selectors"] = SpatialEdge(
         max_distance=0.1, a_pose_slice=slice(3, 67)
     )
-    graph_models.append(vae_model)
+    # graph_models.append(vae_model)
 
 
 dnc_model = [
@@ -111,7 +111,7 @@ dnc_model = [
         "custom_model": DNCMemory,
         "custom_model_config": {
             "hidden_size": hidden,
-            "nr_cells": gsize,
+            "nr_cells": hidden,
             "cell_size": hidden,
             "preprocessor": torch.nn.Sequential(
                 torch.nn.Linear(hidden, hidden),
@@ -128,7 +128,13 @@ dnc_model = [
     for hidden in hiddens
 ]
 
-models = [*graph_models, *attn_model, *rnn_model, *no_mem]  # *dnc_model]
+models = [
+    # *graph_models,
+    # *attn_model,
+    *rnn_model,
+    *no_mem,
+    # *dnc_model
+]
 
 CFG = base.CFG
 CFG["ray"]["num_workers"] = 4
@@ -137,7 +143,7 @@ CFG["ray"]["model"] = grid_search(models)
 # this corresponds to the number of learner GPUs used,
 # not the total used for the environments/rollouts
 # Since this is the bottleneck, we let it use an entire 1024
-CFG["ray"]["num_gpus"] = 1.0
+CFG["ray"]["num_gpus"] = 0.2
 
 # For rollout workers
 CFG["ray"]["num_gpus_per_worker"] = 0.2
@@ -150,7 +156,7 @@ CFG["ray"]["rollout_fragment_length"] = seq_len
 CFG["tune"] = {
     "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
     "stop": {"info/num_steps_trained": 10e6},
-    "num_samples": 3,
+    "num_samples": 2,
 }
 
 if os.environ.get("DEBUG", False):

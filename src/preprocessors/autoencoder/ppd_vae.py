@@ -19,9 +19,7 @@ class PPDepthVAE(ObservationTransformer):
         self.net.eval()
 
     def transform_observation_space(self, obs_space):
-        assert (
-            "rgb" in obs_space.spaces and "depth" in obs_space.spaces
-        ), "VAE requires rgb and depth images"
+        assert "depth" in obs_space.spaces, "VAE requires rgb and depth images"
         self.sensor_shape = np.array(
             (
                 self.env.hab_cfg.SIMULATOR.DEPTH_SENSOR.HEIGHT,
