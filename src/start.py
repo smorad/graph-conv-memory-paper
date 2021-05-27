@@ -5,6 +5,7 @@ import importlib
 import subprocess
 import multiprocessing
 import time
+import sys
 import shutil
 import numpy as np
 import warnings
@@ -185,7 +186,7 @@ def train(args, cfg):
 
     print(f"Best trial: {analysis.best_trial}")
     # Sometimes tune likes to hang
-    os.exit(0)
+    sys.exit(0)
 
 
 def export_torch(args, cfg):
