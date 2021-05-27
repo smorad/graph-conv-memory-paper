@@ -74,6 +74,11 @@ def get_args():
         action="store_true",
         help="Use torch profiler to measure gpu usage over a trial",
     )
+    parser.add_argument(
+        "--hpc",
+        action="store_true",
+        help="Stores results in C3D shared storage, for use on Cambridge HPC cluster",
+    )
     args = parser.parse_args()
     return args
 
@@ -148,6 +153,11 @@ def train(args, cfg):
         prof = profiler.profile(record_shapes=True, profile_memory=True)
         prof.__enter__()
 
+    if args.hpc:
+        local_dir = "/rds/user/sm2558/hpc-work/ray_results"
+    else:
+        local_dir = os.expanduser("~") + "/ray_results"
+
     analysis = tune.run(
         cfg["ray_trainer"],
         config=cfg["ray"],
@@ -166,6 +176,7 @@ def train(args, cfg):
         run_errored_only=bool(args.resume_error),
         name=resume,
         log_to_file=True,
+        local_dir=local_dir,
     )
 
     if args.profile:
