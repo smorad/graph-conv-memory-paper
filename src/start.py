@@ -184,6 +184,8 @@ def train(args, cfg):
         print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=20))
 
     print(f"Best trial: {analysis.best_trial}")
+    # Sometimes tune likes to hang
+    os.exit(0)
 
 
 def export_torch(args, cfg):
