@@ -158,5 +158,6 @@ CFG = {
     "tune": {
         "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
         "stop": {"info/num_steps_trained": 1e6},
+        "num_samples": 3,
     },
 }
