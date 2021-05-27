@@ -19,7 +19,7 @@ def sparse_to_dense(batch: Batch) -> Batch:
 class SparseToDense(torch.nn.Module):
     """Convert from edge_list to adj. """
 
-    def forward(self, x, edge_index, edge_weight, batch_idx, B, N):
+    def forward(self, x, edge_index, batch_idx, B, N):
         # TODO: Should handle weights
         x = torch_geometric.utils.to_dense_batch(x=x, batch=batch_idx, max_num_nodes=N)[
             0
@@ -32,11 +32,27 @@ class SparseToDense(torch.nn.Module):
 
 class DenseToSparse(torch.nn.Module):
     """Convert from adj to edge_list while allowing gradients
-    to flow through adj"""
+    to flow through adj.
 
-    def forward(self, x, adj, weight, B, N):
+    x: shape[B, N+k, feat]
+    adj: shape[B, N+k, N+k]
+    mask: shape[B, N+k]"""
+
+    def forward(self, x, adj, mask=None):
+        assert x.dim() == adj.dim() == 3
+        B = x.shape[0]
+        N = x.shape[1]
+        if mask:
+            assert mask.shape == (B, N)
+            x_mask = mask.unsqueeze(-1).expand(-1, -1, x.shape[-1])
+            adj_mask = mask.unsqueeze(-1).expand(-1, -1, adj.shape[-1])
+            x = x * x_mask
+            adj = adj * adj_mask
+            import pdb
+
+            pdb.set_trace()
+            N = mask.shape[1]
         offset, row, col = torch.nonzero(adj > 0).t()
-        edge_weight = weight[offset, row, col].float()
         row += offset * N
         col += offset * N
         edge_index = torch.stack([row, col], dim=0).long()
@@ -45,7 +61,7 @@ class DenseToSparse(torch.nn.Module):
             torch.arange(0, B, device=x.device).view(-1, 1).repeat(1, N).view(-1)
         )
 
-        return x, edge_index, edge_weight, batch_idx
+        return x, edge_index, batch_idx
 
 
 def dense_to_sparse(batch: Batch) -> Batch:
@@ -128,6 +144,7 @@ class DenseGAM(torch.nn.Module):
         preprocessor: torch.nn.Module = None,
         edge_selectors: torch.nn.Module = None,
         graph_size: int = 128,
+        pooled: bool = False,
     ):
         super().__init__()
 
@@ -135,6 +152,7 @@ class DenseGAM(torch.nn.Module):
         self.gnn = gnn
         self.graph_size = graph_size
         self.edge_selectors = edge_selectors
+        self.pooled = pooled
 
     def forward(
         self, x, hidden: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
@@ -203,7 +221,13 @@ class DenseGAM(torch.nn.Module):
             nodes_in = nodes
 
         node_feats = self.gnn(nodes_in, adj, weights, B, N)
-        mx = node_feats[B_idx, num_nodes[B_idx]]
+        if self.pooled:
+            # If pooled, we expect only a single output node
+            mx = node_feats
+        else:
+            # Otherwise extract the hidden repr at the current node
+            mx = node_feats[B_idx, num_nodes[B_idx]]
+
         assert torch.all(
             torch.isfinite(mx)
         ), "Got NaN in returned memory, try using tanh activation"
