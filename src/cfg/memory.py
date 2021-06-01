@@ -24,13 +24,13 @@ register_env(MemoryEnv.__name__, MemoryEnv)
 cfg_dir = os.path.abspath(os.path.dirname(__file__))
 
 # exp 1
-# optimal_solution = 1.75 * 8 = 14
 """
 hiddens = [32]
 seq_len = 50
 num_cards = 8
 num_matches = 2
 num_unique_cards = num_cards // num_matches
+"""
 """
 # exp 2
 # optimal_solution = 1.75 * 10 = 18
@@ -41,18 +41,15 @@ num_matches = 2
 num_unique_cards = num_cards // num_matches
 """
 # exp 3
-# optimal_solution = 1.75 * 12 = 21
 hiddens = [32]
 seq_len = 100
 num_cards = 12
 num_matches = 2
 num_unique_cards = num_cards // num_matches
-"""
+
 edge_selector = torch_geometric.nn.Sequential(
     "x, adj, weights, N, B",
     [
-        # (SpatialEdge(1e-5, slice(0,1)), "x, adj, weights, N, B -> adj, weights"),
-        # (SpatialEdge(1e-3, slice(1, num_unique_cards + 1)), "x, adj, weights, N, B -> adj, weights"),
         # view_flipped discrete
         # obs slices:
         # ({'card': 0, 'flipped_cards': 5, 'flipped_pos': 15, 'pointer_pos': 31},
@@ -162,13 +159,11 @@ for hidden in hiddens:
     }
     graph_models.append(sgm_model)
 
-# graph_models = grid_search(graph_models)
-
 models = [
-    # *graph_models,
-    # *attn_model,
-    # *rnn_model,
-    # *no_mem,
+    *graph_models,
+    *attn_model,
+    *rnn_model,
+    *no_mem,
     *dnc_model,
 ]
 
@@ -178,9 +173,6 @@ CFG = {
     "ray_trainer": A3CTrainer,
     # Ray specific config sent to ray.tune or ray.rllib trainer
     "ray": {
-        # These are rllib/ray specific
-        # Do not touch these, they perform well for
-        # lstm and sgm
         "env_config": {
             "num_matches": num_matches,
             "num_cards": num_cards,
@@ -212,12 +204,6 @@ if os.environ.get("DEBUG", False):
     CFG["ray_trainer"] = ImpalaTrainer
     CFG["ray"]["num_workers"] = 0
     CFG["ray"]["num_gpus"] = 0.25
-    # CFG["ray"]["evaluation_num_workers"] = 1
-    # CFG["ray"]["evaluation_interval"] = 1
-    # CFG["ray"]["callbacks"] = EvalMetrics
-    # CFG["ray"]["num_gpus"] = 0
-    # CFG["ray"]["rollout_fragment_length"] = CFG["ray"]["train_batch_size"]
-    # CFG["ray"]["model"]["custom_model_config"]["export_gradients"] = True
     CFG["ray"]["train_batch_size"] = 128
     CFG["ray"]["rollout_fragment_length"] = 64
     CFG["tune"] = {

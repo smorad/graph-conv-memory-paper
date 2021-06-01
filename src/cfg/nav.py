@@ -52,7 +52,7 @@ attn_model = [
         "attention_position_wise_mlp_dim": hidden,
         "attention_memory_inference": seq_len,
         "attention_memory_training": seq_len,
-        "attention_use_n_prev_actions": seq_len,
+        "attention_use_n_prev_actions": 1,
     }
     for hidden in hiddens
 ]
@@ -128,13 +128,7 @@ dnc_model = [
     for hidden in hiddens
 ]
 
-models = [
-    # *graph_models,
-    # *attn_model,
-    *rnn_model,
-    *no_mem,
-    # *dnc_model
-]
+models = [*graph_models, *attn_model, *rnn_model, *no_mem, *dnc_model]
 
 CFG = base.CFG
 CFG["ray"]["num_workers"] = 4
@@ -156,19 +150,13 @@ CFG["ray"]["rollout_fragment_length"] = seq_len
 CFG["tune"] = {
     "goal_metric": {"metric": "episode_reward_mean", "mode": "max"},
     "stop": {"info/num_steps_trained": 10e6},
-    "num_samples": 2,
+    "num_samples": 1,
 }
 
 if os.environ.get("DEBUG", False):
-    CFG["ray"]["model"] = dnc_model[0]  # graph_models[0]# bernoulli_reg
+    CFG["ray"]["model"] = dnc_model[0]
     CFG["ray"]["num_workers"] = 1
     CFG["ray"]["num_gpus"] = 0.3
-    # CFG["ray"]["evaluation_num_workers"] = 1
-    # CFG["ray"]["evaluation_interval"] = 1
-    # CFG["ray"]["callbacks"] = EvalMetrics
-    # CFG["ray"]["num_gpus"] = 0
-    # CFG["ray"]["rollout_fragment_length"] = CFG["ray"]["train_batch_size"]
-    # CFG["ray"]["model"]["custom_model_config"]["export_gradients"] = True
     CFG["ray"]["train_batch_size"] = 128
     CFG["ray"]["rollout_fragment_length"] = 64
     CFG["tune"] = {

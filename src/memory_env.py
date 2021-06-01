@@ -269,12 +269,14 @@ class MemoryEnv(gym.Env):
 
     def play(self):
         while True:
+            step = 0
             action = 0
             done = False
             obs = self.reset()
             self.draw()
             running_reward = 0
             while not done:
+                print("Step", step)
                 if self.cfg["mode"] == "view_all":
                     action = int(
                         input(f"Enter action (0...{self.cfg['num_cards'] - 1}): ")
@@ -285,6 +287,7 @@ class MemoryEnv(gym.Env):
                 self.draw()
                 print("Reward is:", reward)
                 running_reward += reward
+                step += 1
             print(f"Game over, total reward: {running_reward} restarting")
 
     def __repr__(self):

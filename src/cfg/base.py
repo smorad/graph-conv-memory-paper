@@ -76,18 +76,12 @@ CFG = {
         "rollout_fragment_length": 256,
         # Total number of timesteps to train per batch
         "train_batch_size": 1024,
-        # Was 0.0015
         "lr": 0.0005,
-        # Entropy 0.005 worked well for LSTM and MLP
-        # As well as lr 0.001 and vtrace: True
         "entropy_coeff": 0.001,
-        # "entropy_coeff": 0.00005,
         "env": NavEnv.__name__,
         "callbacks": CustomMetrics,
-        # "num_sgd_iter": 5,
         "replay_proportion": 1.0,
         "replay_buffer_num_slots": 32,
-        # "learner_queue_size": 32,
         # "placement_strategy": "SPREAD",
         # For evaluation
         # How many epochs/train iters

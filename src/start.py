@@ -157,7 +157,7 @@ def train(args, cfg):
     if args.hpc:
         local_dir = "/rds/user/sm2558/hpc-work/ray_results"
     else:
-        local_dir = os.expanduser("~") + "/ray_results"
+        local_dir = os.path.expanduser("~") + "/ray_results"
 
     analysis = tune.run(
         cfg["ray_trainer"],
