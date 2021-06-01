@@ -1,4 +1,4 @@
-# Visual Navigation using Graph Neural Networks
+# Graph Convolution Memory for Reinforcement Learning
 
 ## Install
 Getting CUDA/python/conda/habitat/ray working together is a project in itself. We run everything in docker to make our setup reproduceable anywhere.
@@ -45,6 +45,6 @@ nvidia-smi
 cd /root/vnav
 git pull
 # Run!
-python3 src/graphenv.py
+python3 src/start.py src/cfg/memory.py
 ```
 
