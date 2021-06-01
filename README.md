@@ -1,7 +1,80 @@
 # Graph Convolution Memory for Reinforcement Learning
 
-## Install
-Getting CUDA/python/conda/habitat/ray working together is a project in itself. We run everything in docker to make our setup reproduceable anywhere.
+## Description
+Graph convolutional memory (GCM) is graph-structured memory that may be applied to reinforcement learning to solve POMDPs, replacing LSTMs or attention mechanisms.
+
+## Quickstart
+If you are interested in apply GCM for your problem, you must `torch` and `torch_geometric` as dependencies. If you are using `ray rllib` to train, use the `RayObsGraph` model as so:
+
+```
+from ray import tune
+from models.ray_graph import RayObsGraph
+from models.edge_selectors.temporal import TemporalBackedge
+
+our_gnn = torch_geometric.nn.Sequential(
+    "x, adj, weights, B, N",
+    [
+        (torch_geometric.nn.DenseGraphConv(32, 32), "x, adj -> x"),
+        (torch.nn.Tanh()),
+        (torch_geometric.nn.DenseGraphConv(32, 32), "x, adj -> x"),
+        (torch.nn.Tanh()),
+    ],
+)
+ray_cfg = {
+   ...
+   "framework": "torch",
+   "model": : {
+      "custom_model": RayObsGraph,
+      "custom_model_config": {
+         "gnn_input_size": 32,
+         "gnn_output_size": 32,
+         "gnn": our_gnn,
+         "edge_selectors": TemporalBackedge([1])
+      }
+   }
+}
+tune.run("PPO", ray_cfg)
+```
+
+If you are not using `ray rllib`, use the model like so:
+
+```
+from models.gam import DenseGAM
+from models.edge_selectors.temporal import TemporalBackedge
+
+our_gnn = torch_geometric.nn.Sequential(
+    "x, adj, weights, B, N",
+    [
+        (torch_geometric.nn.DenseGraphConv(YOUR_OBS_SIZE, 32), "x, adj -> x"),
+        (torch.nn.Tanh()),
+        (torch_geometric.nn.DenseGraphConv(32, 32), "x, adj -> x"),
+        (torch.nn.Tanh()),
+    ],
+)
+gam = DenseGAM(our_gnn, edge_selectors=TemporalBackedge([1]), graph_size=128)
+
+# Create initial state
+edges = torch.zeros(
+    (1, 128, 128), dtype=dtype
+)
+nodes = torch.zeros((1, 128, YOUR_OBS_INPUT_SIZE))
+weights = torch.zeros(
+    (1, 128, 128), dtype=dtype
+)
+num_nodes = torch.tensor(0, dtype=torch.long).reshape(1,1)
+m_t = [nodes, edges, weights, num_nodes]
+
+for t in train_timestep:
+   state, m_t = gam(obs[t], m_t)
+   # Do what you will with the state
+   action_logits = logits(state)
+   state_value = vf(state)
+```
+See `src/models/edge_selectors` for different kinds of priors.
+     
+
+## Full Install
+Getting CUDA/python/conda/habitat/ray working together is a project in itself. We run everything in docker to make our setup reproduceable anywhere. The full install will install all our code as used for our various experiments. You only need to do this if you are rerunning our experiments.
 
 ### Host Setup
 We have tested everything using `Docker version 20.10.2, build 2291f61`, `NVidia Driver Version: 460.27.04`, and `CUDA Version: 11.2` so if you run into issues try using these versions on your host. After installing CUDA, follow the [NVidia guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker) to install docker and nvidia-docker2.
