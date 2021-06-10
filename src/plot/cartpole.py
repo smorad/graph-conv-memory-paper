@@ -10,7 +10,7 @@
     "group_category": "$|z|$",
     "trial_category": "Core Module",
     "num_samples": 500,
-    "output": "/tmp/plots/cartpole_200.pdf",
+    "output": "/tmp/plots/cartpole.pdf",
     "legend_offset": 0.9,
     "limit_line": 195,
     "use_latex": True,
@@ -22,24 +22,24 @@
             "data_prefix": "/Users/smorad/data/corl_2021_exp/cartpole/h8/",
             "data": [
                 {
-                    "title": "GCM",
-                    "trial_paths": ["gcm/*/progress.csv"],
-                },
-                {
-                    "title": "GTrXL",
-                    "trial_paths": ["gtrxl/*/progress.csv"]
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
                 },
                 {
                     "title": "LSTM",
                     "trial_paths": ["lstm/*/progress.csv"]
                 },
                 {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl/*/progress.csv"]
+                },
+                {
                     "title": "DNC",
                     "trial_paths": ["dnc/*/progress.csv"]
                 },
                 {
-                    "title": "MLP",
-                    "trial_paths": ["mlp/*/progress.csv"]
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
                 },
             ]
         },
@@ -49,24 +49,24 @@
             "data_prefix": "/Users/smorad/data/corl_2021_exp/cartpole/h16/",
             "data": [
                 {
-                    "title": "GCM",
-                    "trial_paths": ["gcm/*/progress.csv"],
-                },
-                {
-                    "title": "GTrXL",
-                    "trial_paths": ["gtrxl/*/progress.csv"]
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
                 },
                 {
                     "title": "LSTM",
                     "trial_paths": ["lstm/*/progress.csv"]
                 },
                 {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl/*/progress.csv"]
+                },
+                {
                     "title": "DNC",
                     "trial_paths": ["dnc/*/progress.csv"]
                 },
                 {
-                    "title": "MLP",
-                    "trial_paths": ["mlp/*/progress.csv"]
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
                 },
             ]
         },
@@ -76,24 +76,24 @@
             "data_prefix": "/Users/smorad/data/corl_2021_exp/cartpole/h32/",
             "data": [
                 {
-                    "title": "GCM",
-                    "trial_paths": ["gcm/*/progress.csv"],
-                },
-                {
-                    "title": "GTrXL",
-                    "trial_paths": ["gtrxl/*/progress.csv"]
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
                 },
                 {
                     "title": "LSTM",
                     "trial_paths": ["lstm/*/progress.csv"]
                 },
                 {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl/*/progress.csv"]
+                },
+                {
                     "title": "DNC",
                     "trial_paths": ["dnc/*/progress.csv"]
                 },
                 {
-                    "title": "MLP",
-                    "trial_paths": ["mlp/*/progress.csv"]
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
                 },
             ]
         },

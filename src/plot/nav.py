@@ -22,24 +22,24 @@
             "data_prefix": "/Users/smorad/data/corl_2021_exp/navigation/h8/",
             "data": [
                 {
-                    "title": "GCM",
-                    "trial_paths": ["gcm/*/progress.csv"],
-                },
-                {
-                    "title": "GTrXL",
-                    "trial_paths": ["gtrxl_1t/*/progress.csv"]
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
                 },
                 {
                     "title": "LSTM",
                     "trial_paths": ["lstm/*/progress.csv"]
                 },
                 {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl_1t/*/progress.csv"]
+                },
+                {
                     "title": "DNC",
                     "trial_paths": ["dnc/*/progress.csv"]
                 },
                 {
-                    "title": "MLP",
-                    "trial_paths": ["mlp/*/progress.csv"]
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
                 },
             ]
         },
@@ -49,24 +49,24 @@
             "data_prefix": "/Users/smorad/data/corl_2021_exp/navigation/h16/",
             "data": [
                 {
-                    "title": "GCM",
-                    "trial_paths": ["gcm/*/progress.csv"],
-                },
-                {
-                    "title": "GTrXL",
-                    "trial_paths": ["gtrxl_1t/*/progress.csv"]
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
                 },
                 {
                     "title": "LSTM",
                     "trial_paths": ["lstm/*/progress.csv"]
                 },
                 {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl_1t/*/progress.csv"]
+                },
+                {
                     "title": "DNC",
                     "trial_paths": ["dnc/*/progress.csv"]
                 },
                 {
-                    "title": "MLP",
-                    "trial_paths": ["mlp/*/progress.csv"]
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
                 },
             ]
         },
@@ -76,24 +76,24 @@
             "data_prefix": "/Users/smorad/data/corl_2021_exp/navigation/h32/",
             "data": [
                 {
-                    "title": "GCM",
-                    "trial_paths": ["gcm/*/progress.csv"],
-                },
-                {
-                    "title": "GTrXL",
-                    "trial_paths": ["gtrxl_1t/*/progress.csv"]
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
                 },
                 {
                     "title": "LSTM",
                     "trial_paths": ["lstm/*/progress.csv"]
                 },
                 {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl_1t/*/progress.csv"]
+                },
+                {
                     "title": "DNC",
                     "trial_paths": ["dnc/*/progress.csv"]
                 },
                 {
-                    "title": "MLP",
-                    "trial_paths": ["mlp/*/progress.csv"]
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
                 },
             ]
         },

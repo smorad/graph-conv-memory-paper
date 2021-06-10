@@ -25,24 +25,24 @@
             # Each trial is just an identical run, from which we compute mean/stddev
             "data": [
                 {
-                    "title": "GCM",
-                    "trial_paths": ["gcm/*/progress.csv"],
-                },
-                {
-                    "title": "GTrXL",
-                    "trial_paths": ["gtrxl/*/progress.csv"]
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
                 },
                 {
                     "title": "LSTM",
                     "trial_paths": ["lstm/*/progress.csv"]
                 },
                 {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl/*/progress.csv"]
+                },
+                {
                     "title": "DNC",
                     "trial_paths": ["dnc/*/progress.csv"]
                 },
                 {
-                    "title": "MLP",
-                    "trial_paths": ["mlp/*/progress.csv"]
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
                 },
             ]
         },
@@ -54,24 +54,24 @@
             # Each trial is just an identical run, from which we compute mean/stddev
             "data": [
                 {
-                    "title": "GCM",
-                    "trial_paths": ["gcm/*/progress.csv"],
-                },
-                {
-                    "title": "GTrXL",
-                    "trial_paths": ["gtrxl/*/progress.csv"]
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
                 },
                 {
                     "title": "LSTM",
                     "trial_paths": ["lstm/*/progress.csv"]
                 },
                 {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl/*/progress.csv"]
+                },
+                {
                     "title": "DNC",
                     "trial_paths": ["dnc/*/progress.csv"]
                 },
                 {
-                    "title": "MLP",
-                    "trial_paths": ["mlp/*/progress.csv"]
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
                 },
             ]
         },
@@ -83,24 +83,24 @@
             # Each trial is just an identical run, from which we compute mean/stddev
             "data": [
                 {
-                    "title": "GCM",
-                    "trial_paths": ["gcm/*/progress.csv"],
-                },
-                {
-                    "title": "GTrXL",
-                    "trial_paths": ["gtrxl/*/progress.csv"]
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
                 },
                 {
                     "title": "LSTM",
                     "trial_paths": ["lstm/*/progress.csv"]
                 },
                 {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl/*/progress.csv"]
+                },
+                {
                     "title": "DNC",
                     "trial_paths": ["dnc/*/progress.csv"]
                 },
                 {
-                    "title": "MLP",
-                    "trial_paths": ["mlp/*/progress.csv"]
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
                 },
             ]
         },
