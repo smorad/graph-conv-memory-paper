@@ -129,11 +129,13 @@ nav_config = {
     "range": (0.12, 0.52),
     "title": None,
     "smooth": 10,
-    "group_category": "$|h|$",
+    "group_category": "$|z|$",
     "trial_category": "Core Module",
     "num_samples": 500,
     "output": "/tmp/plots/nav.pdf",
     "legend_offset": 0.9,
+    "limit_line": None,
+    "use_latex": True,
 
     "experiment_groups": [
         {
@@ -220,10 +222,202 @@ nav_config = {
     ]
 }
 
+nav_sweep_config = {
+    "x": "timesteps_total",
+    "x_label": "Training Timestep",
+    "y_label": "Mean Reward per Train Batch",
+    "y": "episode_reward_mean",
+    "range": (0.12, 0.52),
+    "title": None,
+    "smooth": 10,
+    "group_category": "$|z|$",
+    "trial_category": "GCM Prior",
+    "num_samples": 500,
+    "output": "/tmp/plots/gcm_sweep.pdf",
+    "legend_offset": 0.9,
+    "limit_line": None,
+    "use_latex": True,
+
+    "experiment_groups": [
+        {
+            "group_title": "$8$",
+            "replay": 1,
+            "data_prefix": "/Users/smorad/data/corl_2021_exp/navigation_sweep/h8/",
+            "data": [
+                {
+                    "title": "None",
+                    "trial_paths": ["none/*/progress.csv"],
+                },
+                {
+                    "title": "Temporal",
+                    "trial_paths": ["temporal/*/progress.csv"]
+                },
+                {
+                    "title": "Spatial",
+                    "trial_paths": ["spatial/*/progress.csv"]
+                },
+                {
+                    "title": "Latent Sim.",
+                    "trial_paths": ["vae/*/progress.csv"]
+                },
+            ]
+        },
+        {
+            "group_title": "$16$",
+            "replay": 1,
+            "data_prefix": "/Users/smorad/data/corl_2021_exp/navigation_sweep/h16/",
+            "data": [
+                {
+                    "title": "None",
+                    "trial_paths": ["none/*/progress.csv"],
+                },
+                {
+                    "title": "Temporal",
+                    "trial_paths": ["temporal/*/progress.csv"]
+                },
+                {
+                    "title": "Spatial",
+                    "trial_paths": ["spatial/*/progress.csv"]
+                },
+                {
+                    "title": "Latent Sim.",
+                    "trial_paths": ["vae/*/progress.csv"]
+                },
+            ]
+        },
+        {
+            "group_title": "$32$",
+            "replay": 1,
+            "data_prefix": "/Users/smorad/data/corl_2021_exp/navigation_sweep/h32/",
+            "data": [
+                {
+                    "title": "None",
+                    "trial_paths": ["none/*/progress.csv"],
+                },
+                {
+                    "title": "Temporal",
+                    "trial_paths": ["temporal/*/progress.csv"]
+                },
+                {
+                    "title": "Spatial",
+                    "trial_paths": ["spatial/*/progress.csv"]
+                },
+                {
+                    "title": "Latent Sim.",
+                    "trial_paths": ["vae/*/progress.csv"]
+                },
+            ]
+        },
+    ]
+}
+
+cartpole_config = {
+    "x": "agent_timesteps_total",
+    "x_label": "Training Timestep",
+    "y_label": "Mean Reward per Train Batch",
+    "y": "episode_reward_mean",
+    "range": (20, 205),
+    "title": None,
+    "smooth": 10,
+    "group_category": "$|z|$",
+    "trial_category": "Core Module",
+    "num_samples": 500,
+    "output": "/tmp/plots/cartpole_200.pdf",
+    "legend_offset": 0.9,
+    "limit_line": 195,
+    "use_latex": True,
+
+    "experiment_groups": [
+        {
+            "group_title": "$8$",
+            "replay": 0,
+            "data_prefix": "/Users/smorad/data/corl_2021_exp/cartpole/h8/",
+            "data": [
+                {
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
+                },
+                {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl/*/progress.csv"]
+                },
+                {
+                    "title": "LSTM",
+                    "trial_paths": ["lstm/*/progress.csv"]
+                },
+                {
+                    "title": "DNC",
+                    "trial_paths": ["dnc/*/progress.csv"]
+                },
+                {
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
+                },
+            ]
+        },
+        {
+            "group_title": "$16$", 
+            "replay": 0,
+            "data_prefix": "/Users/smorad/data/corl_2021_exp/cartpole/h16/",
+            "data": [
+                {
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
+                },
+                {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl/*/progress.csv"]
+                },
+                {
+                    "title": "LSTM",
+                    "trial_paths": ["lstm/*/progress.csv"]
+                },
+                {
+                    "title": "DNC",
+                    "trial_paths": ["dnc/*/progress.csv"]
+                },
+                {
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
+                },
+            ]
+        },
+        {
+            "group_title": "$32$", 
+            "replay": 0,
+            "data_prefix": "/Users/smorad/data/corl_2021_exp/cartpole/h32/",
+            "data": [
+                {
+                    "title": "GCM",
+                    "trial_paths": ["gcm/*/progress.csv"],
+                },
+                {
+                    "title": "GTrXL",
+                    "trial_paths": ["gtrxl/*/progress.csv"]
+                },
+                {
+                    "title": "LSTM",
+                    "trial_paths": ["lstm/*/progress.csv"]
+                },
+                {
+                    "title": "DNC",
+                    "trial_paths": ["dnc/*/progress.csv"]
+                },
+                {
+                    "title": "MLP",
+                    "trial_paths": ["mlp/*/progress.csv"]
+                },
+            ]
+        },
+    ]
+}
+
 
 def main():
     #cfg = memory_config
-    cfg = nav_config
+    #cfg = nav_config
+    #cfg = cartpole_config
+    cfg = nav_sweep_config
 
     if cfg.get("use_latex", False):
         rc('text', usetex=True)
@@ -231,38 +425,46 @@ def main():
     for exp_group in cfg["experiment_groups"]:
         group_exps = []
         for data in exp_group["data"]:
-            
-            # Mean/stddev trials with identical params
-            run_data = []
-            if exp_group.get('data_prefix', False):
-                trial_paths = [glob.glob(f"{exp_group['data_prefix']}/{p}") for p in data["trial_paths"]]
-            else:
-                trial_paths = [glob.glob(p) for p in data["trial_paths"]]
-            # Flatten
-            trial_paths = list(itertools.chain(*trial_paths))
-            for trial_path in trial_paths:
-                run = pd.read_csv(trial_path, usecols=[cfg["x"], cfg["y"]])
-                run.set_index(cfg["x"])
-                run_data.append(run)
+            try:
+                # Mean/stddev trials with identical params
+                run_data = []
+                if exp_group.get('data_prefix', False):
+                    trial_paths = [glob.glob(f"{exp_group['data_prefix']}/{p}") for p in data["trial_paths"]]
+                else:
+                    trial_paths = [glob.glob(p) for p in data["trial_paths"]]
+                # Flatten
+                trial_paths = list(itertools.chain(*trial_paths))
+                for trial_path in trial_paths:
+                    run = pd.read_csv(trial_path, usecols=[cfg["x"], cfg["y"]])
+                    run.set_index(cfg["x"])
+                    run_data.append(run)
 
-            # Resample so all data is the same size and frequency for seaborn
-            # stddev computation
-            if len(run_data) == 0:
-                run_str = data
-                print(f'Warning, run data for {data} is empty, skipping...')
-                continue
-            max_size = max([r[cfg['x']].max() for r in run_data])
-            new_idx = np.linspace(0, max_size, cfg['num_samples'])
-            for i in range(len(run_data)):
-                run_data[i] = run_data[i].set_index(cfg['x'])
-                run_data[i] = run_data[i].reindex(run_data[i].index.union(new_idx))
-                run_data[i] = run_data[i].interpolate('index').loc[new_idx]
-                # Smooth
-                run_data[i][cfg['y']] = run_data[i][cfg['y']].rolling(cfg['smooth'], min_periods=1).mean()
-                
-            runs = pd.concat(run_data)
-            runs['trial_name'] = data['title']
-            group_exps.append(runs)
+                # Resample so all data is the same size and frequency for seaborn
+                # stddev computation
+                if len(run_data) == 0:
+                    run_str = data
+                    print(f'Warning, run data for {data} is empty, skipping...')
+                    continue
+                max_size = max([r[cfg['x']].max() for r in run_data])
+                new_idx = np.linspace(0, max_size, cfg['num_samples'])
+                for i in range(len(run_data)):
+                    run_data[i] = run_data[i].set_index(cfg['x'])
+                    # Can't reindex if there are duplicate values in index
+                    duped = run_data[i].index.duplicated()
+                    if np.any(duped):
+                        print(f'Detected duplicated timesteps in {trial_paths[i]}, removing: {run_data[i].index[duped]}')
+                        run_data[i] = run_data[i][~duped]
+                    run_data[i] = run_data[i].reindex(run_data[i].index.union(new_idx))
+                    run_data[i] = run_data[i].interpolate('index').loc[new_idx]
+                    # Smooth
+                    run_data[i][cfg['y']] = run_data[i][cfg['y']].rolling(cfg['smooth'], min_periods=1).mean()
+                    
+                runs = pd.concat(run_data)
+                runs['trial_name'] = data['title']
+                group_exps.append(runs)
+            except Exception:
+                print(f"Failed to parse data, group: {data}\n{exp_group}")
+                raise
 
         group = pd.concat(group_exps)
         group['group_title'] = exp_group['group_title']
