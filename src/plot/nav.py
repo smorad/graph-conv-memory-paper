@@ -8,10 +8,10 @@
     "title": None,
     "smooth": 10,
     "group_category": "$|z|$",
-    "trial_category": "Core Module",
+    "trial_category": "Memory Module",
     "num_samples": 500,
     "output": "/tmp/plots/nav.pdf",
-    "legend_offset": 0.9,
+    "legend_offset": 0.88,
     "limit_line": None,
     "use_latex": True,
 

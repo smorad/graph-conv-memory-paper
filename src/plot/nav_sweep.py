@@ -11,7 +11,7 @@
     "trial_category": "GCM Prior",
     "num_samples": 500,
     "output": "/tmp/plots/gcm_sweep.pdf",
-    "legend_offset": 0.9,
+    "legend_offset": 0.87,
     "limit_line": None,
     "use_latex": True,
 

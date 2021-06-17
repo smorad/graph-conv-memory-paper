@@ -8,10 +8,10 @@
     "title": None,
     "smooth": 10,
     "group_category": "$|z|$",
-    "trial_category": "Core Module",
+    "trial_category": "Memory Module",
     "num_samples": 500,
     "output": "/tmp/plots/cartpole.pdf",
-    "legend_offset": 0.9,
+    "legend_offset": 0.85,
     "limit_line": 195,
     "use_latex": True,
 
@@ -41,6 +41,10 @@
                     "title": "GCM",
                     "trial_paths": ["gcm/*/progress.csv"],
                 },
+                {
+                    "title": "GTrXL $(t-2)$",
+                    "trial_paths": ["gtrxl_2t/*/progress.csv"]
+                }
             ]
         },
         {
@@ -68,6 +72,10 @@
                     "title": "GCM",
                     "trial_paths": ["gcm/*/progress.csv"],
                 },
+                {
+                    "title": "GTrXL $(t-2)$",
+                    "trial_paths": ["gtrxl_2t/*/progress.csv"]
+                }
             ]
         },
         {
@@ -95,6 +103,10 @@
                     "title": "GCM",
                     "trial_paths": ["gcm/*/progress.csv"],
                 },
+                {
+                    "title": "GTrXL $(t-2)$",
+                    "trial_paths": ["gtrxl_2t/*/progress.csv"]
+                }
             ]
         },
     ]

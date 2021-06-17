@@ -228,7 +228,7 @@ def main():
     # plotting 
     sb.set_theme()
     sb.set_context('talk')
-    sb.set_palette('colorblind')
+    sb.set_palette("muted")
     plot = sb.relplot(
         data=df,
         x=df.index,
@@ -236,9 +236,11 @@ def main():
         hue=cfg['trial_category'],
         col=cfg['group_category'],
         kind='line',
-        linewidth=1.5,
+        linewidth=2,
         ci=cfg.get("ci", 95),
     )
+    for line in plot.legend.get_lines():
+        line.set_linewidth(6.0)
 
     if cfg.get('title', False):
         plot.fig.suptitle(cfg['title'], y=0.93)
