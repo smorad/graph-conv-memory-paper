@@ -179,9 +179,17 @@ def main():
                 # Flatten
                 trial_paths = list(itertools.chain(*trial_paths))
                 for trial_path in trial_paths:
-                    run = pd.read_csv(trial_path, usecols=[cfg["x"], cfg["y"]])
-                    run.set_index(cfg["x"])
-                    run_data.append(run)
+                    try:
+                        if data.get('format', None) == 'json':
+                            run = pd.read_json(trial_path, lines=True)
+                            #run = run.to_csv()
+                        else:
+                            run = pd.read_csv(trial_path, usecols=[cfg["x"], cfg["y"]])
+                        run.set_index(cfg["x"])
+                        run_data.append(run)
+                    except:
+                        print(f'Failed on file: {trial_path}')
+                        raise
 
                 # Resample so all data is the same size and frequency for seaborn
                 # stddev computation
