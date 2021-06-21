@@ -1,7 +1,7 @@
 import unittest
 import torch
-import gam
-from gam import DenseGAM, DenseToSparse, SparseToDense
+import gcm
+from gcm import DenseGCM, DenseToSparse, SparseToDense
 import torch_geometric
 from edge_selectors.temporal import TemporalBackedge
 from edge_selectors.distance import EuclideanEdge, CosineEdge, SpatialEdge
@@ -24,7 +24,7 @@ class TestWrapOverflow(unittest.TestCase):
                 (torch.nn.ReLU()),
             ],
         )
-        self.s = DenseGAM(self.g)
+        self.s = DenseGCM(self.g)
 
         self.nodes = torch.arange((batches * N * feats), dtype=torch.float).reshape(
             batches, N, feats
@@ -76,7 +76,7 @@ class TestWrapOverflow(unittest.TestCase):
             self.fail(f"{nodes[0]} != {desired_nodes[0]}")
 
 
-class TestGAMDirection(unittest.TestCase):
+class TestGCMDirection(unittest.TestCase):
     def setUp(self):
         torch.autograd.set_detect_anomaly(True)
         feats = 11
@@ -101,7 +101,7 @@ class TestGAMDirection(unittest.TestCase):
                 layer.lin_rel.weight = torch.nn.Parameter(
                     torch.diag(torch.ones(layer.lin_root.weight.shape[-1]))
                 )
-        self.s = DenseGAM(self.g)
+        self.s = DenseGCM(self.g)
 
         self.nodes = torch.arange((batches * N * feats), dtype=torch.float).reshape(
             batches, N, feats
@@ -115,7 +115,7 @@ class TestGAMDirection(unittest.TestCase):
         self.weights = torch.ones(batches, N, N)
         self.num_nodes = torch.zeros(batches, dtype=torch.long)
 
-    def test_gam_direction(self):
+    def test_gcm_direction(self):
         # Only get neighbor
         self.adj[:, 0, 3] = 1
         # list(self.g.modules())[1][0].lin_rel(torch.matmul(self.adj, self.nodes))
@@ -132,7 +132,7 @@ class TestGAMDirection(unittest.TestCase):
             self.fail(f"{self.nodes[0,3]} != {desired}")
 
 
-class TestDenseGAME2E(unittest.TestCase):
+class TestDenseGCME2E(unittest.TestCase):
     def setUp(self):
         torch.autograd.set_detect_anomaly(True)
         feats = 11
@@ -159,7 +159,7 @@ class TestDenseGAME2E(unittest.TestCase):
                 layer.lin_rel.weight = torch.nn.Parameter(
                     torch.diag(torch.ones(layer.lin_root.weight.shape[-1]))
                 )
-        self.s = DenseGAM(self.g)
+        self.s = DenseGCM(self.g)
 
         self.nodes = torch.zeros((batches, N, feats), dtype=torch.float)
         self.all_obs = [
@@ -215,7 +215,7 @@ class TestDenseGAME2E(unittest.TestCase):
             self.fail(f"out: {out} != {self.all_obs[1]}")
 
 
-class TestDenseGAM(unittest.TestCase):
+class TestDenseGCM(unittest.TestCase):
     def setUp(self):
         torch.autograd.set_detect_anomaly(True)
         feats = 11
@@ -231,7 +231,7 @@ class TestDenseGAM(unittest.TestCase):
                 (torch.nn.ReLU()),
             ],
         )
-        self.s = DenseGAM(self.g)
+        self.s = DenseGCM(self.g)
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -323,7 +323,7 @@ class TestDenseGAM(unittest.TestCase):
             self.fail(f"Final loss {losses[-1]} not better than init loss {losses[0]}")
 
 
-class TestSparseGAM(unittest.TestCase):
+class TestSparseGCM(unittest.TestCase):
     def setUp(self):
         feats = 11
         batches = 5
@@ -342,7 +342,7 @@ class TestSparseGAM(unittest.TestCase):
                 (lambda x: x, "x -> x"),
             ],
         )
-        self.s = DenseGAM(self.g)
+        self.s = DenseGCM(self.g)
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -380,7 +380,7 @@ class TestSparseGAM(unittest.TestCase):
         dense_batch = torch_geometric.data.Batch(
             x=self.nodes, adj=self.adj, edge_weight=self.weights, B=B, N=N
         )
-        sparse_batch = gam.dense_to_sparse(dense_batch)
+        sparse_batch = gcm.dense_to_sparse(dense_batch)
         new_nodes = torch_geometric.utils.to_dense_batch(
             x=sparse_batch.x, batch=sparse_batch.batch, max_num_nodes=sparse_batch.N
         )[0]
@@ -426,8 +426,8 @@ class TestSparseGAM(unittest.TestCase):
         batch = torch_geometric.data.Batch(
             x=self.nodes, adj=self.adj, edge_weight=self.weights, B=B, N=N
         )
-        sparse_batch = gam.dense_to_sparse(batch)
-        dense_batch = gam.sparse_to_dense(sparse_batch)
+        sparse_batch = gcm.dense_to_sparse(batch)
+        dense_batch = gcm.sparse_to_dense(sparse_batch)
 
         if torch.any(dense_batch.x != batch.x):
             self.fail(f"x: {dense_batch.x} != {batch.x}")
@@ -486,7 +486,7 @@ class TestTemporalEdge(unittest.TestCase):
                 (torch.nn.ReLU()),
             ],
         )
-        self.s = DenseGAM(self.g, edge_selectors=TemporalBackedge(hops=[1]))
+        self.s = DenseGCM(self.g, edge_selectors=TemporalBackedge(hops=[1]))
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -520,7 +520,7 @@ class TestTemporalEdge(unittest.TestCase):
             self.weights,
             self.num_nodes,
         )
-        self.s = DenseGAM(self.g, edge_selectors=TemporalBackedge(hops=[4]))
+        self.s = DenseGCM(self.g, edge_selectors=TemporalBackedge(hops=[4]))
         for i in range(10):
             _, (nodes, adj, weights, num_nodes) = self.s(
                 self.obs, (nodes, adj, weights, num_nodes)
@@ -553,7 +553,7 @@ class TestDistanceEdge(unittest.TestCase):
                 (torch.nn.ReLU()),
             ],
         )
-        self.s = DenseGAM(self.g, edge_selectors=EuclideanEdge(max_distance=1))
+        self.s = DenseGCM(self.g, edge_selectors=EuclideanEdge(max_distance=1))
 
         self.nodes = torch.zeros(batches, N, feats, dtype=torch.float)
         self.obs = torch.zeros(batches, feats)
@@ -585,7 +585,7 @@ class TestDistanceEdge(unittest.TestCase):
             self.fail(f"{tgt_adj} != {self.adj}")
 
     def test_cosine(self):
-        self.s = DenseGAM(self.g, edge_selectors=CosineEdge(max_distance=1))
+        self.s = DenseGCM(self.g, edge_selectors=CosineEdge(max_distance=1))
         _, (nodes, adj, weights, num_nodes) = self.s(
             self.obs, (self.nodes, self.adj, self.weights, self.num_nodes)
         )
@@ -606,7 +606,7 @@ class TestDenseEdge(unittest.TestCase):
                 (torch.nn.ReLU()),
             ],
         )
-        self.s = DenseGAM(self.g, edge_selectors=DenseEdge())
+        self.s = DenseGCM(self.g, edge_selectors=DenseEdge())
 
         self.nodes = torch.zeros(batches, N, feats, dtype=torch.float)
         self.obs = torch.zeros(batches, feats)
@@ -660,7 +660,7 @@ class TestBernoulliEdge(unittest.TestCase):
                 (torch.nn.ReLU()),
             ],
         )
-        self.s = DenseGAM(self.g, edge_selectors=BernoulliEdge(feats))
+        self.s = DenseGCM(self.g, edge_selectors=BernoulliEdge(feats))
 
         # Now do it in a loop to make sure grads propagate
         self.optimizer = torch.optim.Adam(self.s.parameters(), lr=0.005)
@@ -706,7 +706,7 @@ class TestBernoulliEdge(unittest.TestCase):
     def test_indexing(self):
         self.b = BernoulliEdge(5, torch.nn.Sequential(Sum()))
 
-        self.s = DenseGAM(self.g, edge_selectors=self.b)
+        self.s = DenseGCM(self.g, edge_selectors=self.b)
         self.all_obs = [
             torch.ones_like(self.obs) * 0.1,
             torch.ones_like(self.obs) * 0.2,
@@ -870,7 +870,7 @@ class TestSpatialEdge(unittest.TestCase):
             ],
         )
         self.slice = slice(0, 2)
-        self.s = DenseGAM(self.g, edge_selectors=SpatialEdge(1, self.slice))
+        self.s = DenseGCM(self.g, edge_selectors=SpatialEdge(1, self.slice))
 
         self.nodes = torch.zeros(batches, N, feats, dtype=torch.float)
         self.obs = torch.zeros(batches, feats)

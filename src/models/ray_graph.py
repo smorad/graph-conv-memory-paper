@@ -27,7 +27,7 @@ from torchviz import make_dot
 
 import torch_geometric
 from torch_geometric.data import Data, Batch
-from models.gam import DenseGAM
+from models.gcm import DenseGCM
 from models.edge_selectors.bernoulli import BernoulliEdge
 import pydot
 import visdom
@@ -131,7 +131,7 @@ class RayObsGraph(TorchModelV2, nn.Module):
         pp = torch.nn.Linear(self.input_dim, cfg["gnn_input_size"])
         if cfg["preprocessor"]:
             pp = torch.nn.Sequential(pp, cfg["preprocessor"])
-        self.gam = DenseGAM(
+        self.gcm = DenseGCM(
             cfg["gnn"],
             preprocessor=pp,
             edge_selectors=self.cfg["edge_selectors"],
@@ -332,10 +332,10 @@ class RayObsGraph(TorchModelV2, nn.Module):
         if self.cfg["sparse"]:
             adj_mats = adj_mats.long()
 
-        # Push thru pre-gam layers
+        # Push thru pre-gcm layers
         hidden = (nodes, adj_mats, weights, num_nodes)
         for t in range(T):
-            out, hidden = self.gam(flat[:, t, :], hidden)
+            out, hidden = self.gcm(flat[:, t, :], hidden)
             outs[:, t, :] = out
 
         # Collapse batch and time for more efficient forward

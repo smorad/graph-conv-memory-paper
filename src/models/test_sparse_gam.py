@@ -1,6 +1,6 @@
 import unittest
 import torch
-from sparse_gam import SparseGAM
+from sparse_gcm import SparseGCM
 import torch_geometric
 from sparse_edge_selectors.temporal import TemporalEdge
 from sparse_edge_selectors.distance import EuclideanEdge
@@ -19,7 +19,7 @@ class Sum(torch_geometric.nn.MessagePassing):
         return x_i + x_j.sum(dim=0)
 
 
-class TestSparseGAM(unittest.TestCase):
+class TestSparseGCM(unittest.TestCase):
     def setUp(self):
         B = 3
         T = 4
@@ -40,10 +40,10 @@ class TestSparseGAM(unittest.TestCase):
             "x, edge_index", [(Ident(), "x, edge_index -> x")]
         )
 
-        self.gam = SparseGAM(self.gnn)
+        self.gcm = SparseGCM(self.gnn)
 
     def test_simple(self):
-        out, nodes, edge_list, weights = self.gam(self.xs, self.nodes, self.edges, None)
+        out, nodes, edge_list, weights = self.gcm(self.xs, self.nodes, self.edges, None)
         desired = torch.zeros(3, 2, 5)
         if torch.any(out != desired):
             self.fail(f"{out} != {desired}")
@@ -51,7 +51,7 @@ class TestSparseGAM(unittest.TestCase):
     def test_first_run(self):
         self.nodes = torch.tensor([]).reshape(3, 0, 5)
         self.edges = torch.tensor([], dtype=torch.long).reshape(3, 2, 0)
-        out, nodes, edge_list, weights = self.gam(self.xs, self.nodes, self.edges, None)
+        out, nodes, edge_list, weights = self.gcm(self.xs, self.nodes, self.edges, None)
 
         desired_shape = (3, 2, 5)
         if nodes.shape != desired_shape:
@@ -79,12 +79,12 @@ class TestBatchBuilder(unittest.TestCase):
             "x, edge_index", [(Ident(), "x, edge_index -> x")]
         )
 
-        self.gam = SparseGAM(self.gnn)
+        self.gcm = SparseGCM(self.gnn)
 
     def test_impossible_edges(self):
         self.edges[0, :, 0] = torch.tensor([100, 99], dtype=torch.long)
         # self.gnn.build_batch(self.nodes, self.edge_list, None,
-        out, nodes, edge_list, weights = self.gam(
+        out, nodes, edge_list, weights = self.gcm(
             self.xs[:, 0, :].unsqueeze(1), self.nodes, self.edges, None
         )
         # import pdb; pdb.set_trace()
@@ -92,7 +92,7 @@ class TestBatchBuilder(unittest.TestCase):
     def test_future_edges(self):
         return
         self.edges[0, :, 0] = torch.tensor([5, 4], dtype=torch.long)
-        out, nodes, edge_list, weights = self.gam(
+        out, nodes, edge_list, weights = self.gcm(
             self.xs[:, 0, :].unsqueeze(1), self.nodes, self.edges, None
         )
 
@@ -124,10 +124,10 @@ class TestTemporalEdge(unittest.TestCase):
             ],
         )
 
-        self.gam = SparseGAM(self.gnn, edge_selectors=self.edge_selector)
+        self.gcm = SparseGCM(self.gnn, edge_selectors=self.edge_selector)
 
     def test_simple(self):
-        out, nodes, edge_list, weights = self.gam(self.xs, self.nodes, self.edges, None)
+        out, nodes, edge_list, weights = self.gcm(self.xs, self.nodes, self.edges, None)
 
         desired = torch.tensor(
             [
@@ -166,11 +166,11 @@ class TestDistanceEdge(unittest.TestCase):
             ],
         )
 
-        self.gam = SparseGAM(self.gnn, edge_selectors=self.edge_selector)
+        self.gcm = SparseGCM(self.gnn, edge_selectors=self.edge_selector)
 
     def test_simple(self):
         self.nodes[:, 0] = 0
-        out, nodes, edge_list, weights = self.gam(self.xs, self.nodes, self.edges, None)
+        out, nodes, edge_list, weights = self.gcm(self.xs, self.nodes, self.edges, None)
 
         desired = torch.tensor(
             [
@@ -186,7 +186,7 @@ class TestDistanceEdge(unittest.TestCase):
         self.nodes[0, 0] = 0
         self.nodes[1, 1] = 0
         self.nodes[2, 2] = 0
-        out, nodes, edge_list, weights = self.gam(self.xs, self.nodes, self.edges, None)
+        out, nodes, edge_list, weights = self.gcm(self.xs, self.nodes, self.edges, None)
 
         desired = torch.tensor(
             [
