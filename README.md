@@ -4,7 +4,7 @@
 Graph convolutional memory (GCM) is graph-structured memory that may be applied to reinforcement learning to solve POMDPs, replacing LSTMs or attention mechanisms.
 
 ## Quickstart
-If you are interested in apply GCM for your problem, you must install dependencies `torch` and `torch_geometric`. If you are using `ray rllib` to train, use the `RayObsGraph` model as so:
+If you are interested in apply GCM for your problem, you must install dependencies `torch` and `torch_geometric`. If you are using `ray rllib` to train, use the `RayObsGraph` model as so (running from the project root directory):
 
 ```
 import torch
@@ -99,15 +99,21 @@ docker build docker -t ray_habitat:latest
 
 # Launch a container
 # Make sure you fill out SCENE_DATASET_PATH to where you've
-# stored the mp3d scene_datasets
-export SCENE_DATASET_PATH=/local/scratch/sm2558/scene_datasets
+# stored the mp3d scene_datasets (navigation problem only)
+# We cannot share these, you need to sign a waiver with mp3d first
+export SCENE_DATASET_PATH=/path_to/scene_datasets
+# port description:
+# 8265 ray
+# 5000 navigation renders
+# 5050 visdom
+# 6006 tensorboard
 docker run \
     --gpus all \
     --shm-size 32g \
-    -p 8299:8265 # Ray \
-    -p 5000:5000 # Render server \
-    -p 5050:5050 # Visdom \
-    -p 6099:6006 # Tensorboard \
+    -p 8299:8265 \
+    -p 5000:5000 \
+    -p 5050:5050 \
+    -p 6099:6006 \
     -v ${SCENE_DATASET_PATH}:/root/scene_datasets \
     -ti ray_habitat:latest bash
 
