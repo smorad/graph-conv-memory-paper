@@ -4,10 +4,15 @@
 Graph convolutional memory (GCM) is graph-structured memory that may be applied to reinforcement learning to solve POMDPs, replacing LSTMs or attention mechanisms.
 
 ## Quickstart
-If you are interested in apply GCM for your problem, you must `torch` and `torch_geometric` as dependencies. If you are using `ray rllib` to train, use the `RayObsGraph` model as so:
+If you are interested in apply GCM for your problem, you must install dependencies `torch` and `torch_geometric`. If you are using `ray rllib` to train, use the `RayObsGraph` model as so:
 
 ```
+import torch
+import torch_geometric
+
 from ray import tune
+from ray.rllib.examples.env.stateless_cartpole import StatelessCartPole
+
 from models.ray_graph import RayObsGraph
 from models.edge_selectors.temporal import TemporalBackedge
 
@@ -21,9 +26,9 @@ our_gnn = torch_geometric.nn.Sequential(
     ],
 )
 ray_cfg = {
-   ...
+   "env": StatelessCartPole, # Replace this with your desired env
    "framework": "torch",
-   "model": : {
+   "model": {
       "custom_model": RayObsGraph,
       "custom_model_config": {
          "gnn_input_size": 32,
@@ -33,13 +38,15 @@ ray_cfg = {
       }
    }
 }
-tune.run("PPO", ray_cfg)
+tune.run("PPO", config=ray_cfg)
 ```
 
 If you are not using `ray rllib`, use the model like so:
 
 ```
-from models.gam import DenseGAM
+import torch
+import torch_geometric
+from models.gcm import DenseGCM
 from models.edge_selectors.temporal import TemporalBackedge
 
 our_gnn = torch_geometric.nn.Sequential(
@@ -51,22 +58,23 @@ our_gnn = torch_geometric.nn.Sequential(
         (torch.nn.Tanh()),
     ],
 )
-gam = DenseGAM(our_gnn, edge_selectors=TemporalBackedge([1]), graph_size=128)
+gcm = DenseGCM(our_gnn, edge_selectors=TemporalBackedge([1]), graph_size=128)
 
 # Create initial state
 edges = torch.zeros(
-    (1, 128, 128), dtype=dtype
+    (1, 128, 128), dtype=torch.float
 )
-nodes = torch.zeros((1, 128, YOUR_OBS_INPUT_SIZE))
+nodes = torch.zeros((1, 128, YOUR_OBS_SIZE))
 weights = torch.zeros(
-    (1, 128, 128), dtype=dtype
+    (1, 128, 128), dtype=torch.float
 )
-num_nodes = torch.tensor(0, dtype=torch.long).reshape(1,1)
+num_nodes = torch.tensor([0], dtype=torch.long)
 m_t = [nodes, edges, weights, num_nodes]
 
 for t in train_timestep:
-   state, m_t = gam(obs[t], m_t)
+   state, m_t = gcm(obs[t], m_t)
    # Do what you will with the state
+   # likely you want to use it to get action/value estimate
    action_logits = logits(state)
    state_value = vf(state)
 ```
@@ -79,7 +87,7 @@ Getting CUDA/python/conda/habitat/ray working together is a project in itself. W
 ### Host Setup
 We have tested everything using `Docker version 20.10.2, build 2291f61`, `NVidia Driver Version: 460.27.04`, and `CUDA Version: 11.2` so if you run into issues try using these versions on your host. After installing CUDA, follow the [NVidia guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker) to install docker and nvidia-docker2.
 
-Unfortunately CUDA is required for Habitat, so you must follow this step. Once the host is set up, continue with the docker container creation. We also do not store the scene models in the docker container, as they are huge and it's not legal for us to package them in the container. Download the `habitat` task of the matterport3D dataset as shown [here](https://github.com/facebookresearch/habitat-lab#data). Then extract it, and use the extracted directory as `SCENE_DATASET_PATH` in the container setup.
+Unfortunately CUDA is required for Habitat, so you must follow this step if you want to run the navigation experiment. Once the host is set up, continue with the docker container creation. We also do not store the scene models in the docker container, as they are huge and it's not legal for us to package them in the container. Download the `habitat` task of the matterport3D dataset as shown [here](https://github.com/facebookresearch/habitat-lab#data). Then extract it, and use the extracted directory as `SCENE_DATASET_PATH` in the container setup.
 
 ### Docker Container Setup
 ```
@@ -121,3 +129,12 @@ git pull
 python3 src/start.py src/cfg/memory.py
 ```
 
+### Rerunning Experiments
+You can rerun our experiments with the following commands:
+```
+python3 src/start.py src/cfg/cartpole.py # Cartpole experiment
+python3 src/start.py src/cfg/memory.py # Memory experiment
+python3 src/start.py src/cfg/nav.py # Navigation experiment
+```
+
+Which will populate `$HOME/ray_results/<EXPERIMENT_ID>` with tensorboard data as well as CSV and JSON files containing the training info.
