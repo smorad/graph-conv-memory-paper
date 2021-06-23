@@ -6,7 +6,7 @@ from torch_geometric_temporal.signal.dynamic_graph_static_signal import (
 )
 
 
-class SparseGAM(torch.nn.Module):
+class SparseGCM(torch.nn.Module):
     """Graph Associative Memory"""
 
     def __init__(

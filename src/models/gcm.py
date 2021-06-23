@@ -133,7 +133,7 @@ def overflow(num_nodes: torch.Tensor, N: int):
 """
 
 
-class DenseGAM(torch.nn.Module):
+class DenseGCM(torch.nn.Module):
     """Graph Associative Memory"""
 
     did_warn = False

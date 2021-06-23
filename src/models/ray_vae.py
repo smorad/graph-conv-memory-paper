@@ -16,9 +16,9 @@ DEFAULTS = {"z_dim": 128, "depth_weight": 1, "semantic_weight": 1, "elbo_beta": 
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=0.75, gamma=2.0):
+    def __init__(self, alpha=0.75, gcmma=2.0):
         self.alpha = alpha
-        self.gamma = gamma
+        self.gcmma = gcmma
         super(FocalLoss, self).__init__()
 
     def forward(self, inputs, targets, smooth=1):
@@ -29,7 +29,7 @@ class FocalLoss(nn.Module):
         # first compute binary cross-entropy
         BCE = nn.functional.binary_cross_entropy(inputs, targets, reduction="mean")
         BCE_EXP = torch.exp(-BCE)
-        focal_loss = self.alpha * (1 - BCE_EXP) ** self.gamma * BCE
+        focal_loss = self.alpha * (1 - BCE_EXP) ** self.gcmma * BCE
 
         return focal_loss
 

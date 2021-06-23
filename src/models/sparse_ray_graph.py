@@ -30,7 +30,7 @@ from torchviz import make_dot
 
 import torch_geometric
 from torch_geometric.data import Data, Batch
-from models.sparse_gam import SparseGAM
+from models.sparse_gcm import SparseGCM
 from models.edge_selectors.bernoulli import BernoulliEdge
 import pydot
 import visdom
@@ -115,7 +115,7 @@ class RaySparseObsGraph(TorchModelV2, nn.Module):
     def build_network(self, cfg):
         """Builds the MLPs based on config"""
         fc = torch.nn.Linear(self.input_dim, cfg["gnn_input_size"])
-        self.gam = SparseGAM(
+        self.gcm = SparseGCM(
             gnn=cfg["gnn"],
             preprocessor=fc,
             edge_selectors=self.cfg["edge_selectors"],
@@ -291,8 +291,8 @@ class RaySparseObsGraph(TorchModelV2, nn.Module):
         nodes, edges, weights = state
         edges = edges.long()
 
-        # Push thru pre-gam layers
-        out, nodes, edges, weights = self.gam(flat, nodes, edges, weights)
+        # Push thru pre-gcm layers
+        out, nodes, edges, weights = self.gcm(flat, nodes, edges, weights)
 
         # Collapse batch and time for more efficient forward
         out_view = out.view(B * T, self.cfg["gnn_output_size"])

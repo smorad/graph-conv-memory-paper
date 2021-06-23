@@ -39,8 +39,11 @@ RUN pip3 install 'git+https://github.com/facebookresearch/detectron2.git'
 # Install our deps; webserver for viewing observation and faster PIL
 RUN pip3 uninstall -y pillow && pip3 install flask pillow-simd Flask-SocketIO visdom dnc torchviz
 
-# Copy token for gitlab clone
-RUN echo "6RJQmn5AezFsn7Nsqu7N" > /root/token && git clone https://oauth2:$(cat /root/token)@gitlab.developers.cam.ac.uk/cst/prorok-lab/vnav /root/vnav
+## Copy token for gitlab clone
+## Disabled for release, don't worry this token is expired :P
+# RUN echo "6RJQmn5AezFsn7Nsqu7N" > /root/token && git clone https://oauth2:$(cat /root/token)@gitlab.developers.cam.ac.uk/cst/prorok-lab/vnav /root/vnav
+## Dev tools
+#RUN pip3 install pre-commit && cd /root/vnav && pre-commit && pre-commit autoupdate && pre-commit install
 
 # Download test and object-goal navigation episodes
 RUN apt install -y unzip curl && \
@@ -69,6 +72,3 @@ RUN apt install -y unzip curl && \
 # Link matterport and gibson models to mounted docker volume
 RUN ln -s /root/scene_datasets/mp3d /root/habitat-lab/data/scene_datasets \
 	&& ln -s /root/scene_datasets/gibson /root/habitat-lab/data/scene_datasets
-
-# Dev tools
-RUN pip3 install pre-commit && cd /root/vnav && pre-commit && pre-commit autoupdate && pre-commit install
