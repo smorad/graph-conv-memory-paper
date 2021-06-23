@@ -13,8 +13,6 @@ RUN cd /root/habitat-sim && pip3 install -r requirements.txt && python3 setup.py
 
 # Install pytorch for example, and ensure sim works with all our required pkgs
 ARG TORCH=1.8.1
-# Bug: pytorch_geometric 1.8.1 mirror broken
-ARG _TORCH=1.8.0
 ARG TORCHVISION=0.9.1
 ARG CUDA=cu111
 # Pytorch and torch_geometric w/ deps
@@ -22,7 +20,7 @@ RUN pip3 install torch==${TORCH}+${CUDA} \
     torchvision==${TORCHVISION}+${CUDA} \ 
     -f https://download.pytorch.org/whl/torch_stable.html
 RUN pip3 install torch-scatter torch-sparse torch-cluster torch-spline-conv \
-    -f https://pytorch-geometric.com/whl/torch-${_TORCH}+${CUDA}.html \
+    -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html \
     torch_geometric
 # pytorch_geometric can be a bit buggy during install
 RUN python3 -c "import torch; import torch_geometric"
@@ -54,16 +52,16 @@ RUN apt install -y unzip curl && \
 		--output objectnav_mp3d_v1.zip \ 
 	&& mkdir -p /root/habitat-lab/data/datasets/objectnav/mp3d/v1/ \
 	&& unzip objectnav_mp3d_v1.zip -d /root/habitat-lab/data/datasets/objectnav/mp3d/v1/ \
-	&& rm objectnav_mp3d_v1.zip
+	&& rm objectnav_mp3d_v1.zip \
     # mp3d pointnav
 	&& curl https://dl.fbaipublicfiles.com/habitat/data/datasets/pointnav/mp3d/v1/pointnav_mp3d_v1.zip \
 		--output pointnav_mp3d_v1.zip \
 	&& mkdir -p /root/habitat-lab/data/datasets/pointnav/mp3d/v1/ \
 	&& unzip pointnav_mp3d_v1.zip -d /root/habitat-lab/data/datasets/pointnav/mp3d/v1/ \
-	&& rm pointnav_mp3d_v1.zip
+	&& rm pointnav_mp3d_v1.zip \
     # gibson pointnav
-	&& curl https://dl.fbaipublicfiles.com/habitat/data/datasets/pointnav/gibson/v1/pointnav_gibson_v1.zip
-		--output pointnav_gibson_v1.zip
+	&& curl https://dl.fbaipublicfiles.com/habitat/data/datasets/pointnav/gibson/v1/pointnav_gibson_v1.zip \
+		--output pointnav_gibson_v1.zip \
 	&& mkdir -p /root/habitat-lab/data/datasets/pointnav/gibson/v1/ \
 	&& unzip pointnav_gibson_v1.zip -d /root/habitat-lab/data/datasets/pointnav/gibson/v1/ \
 	&& rm pointnav_gibson_v1.zip
@@ -71,7 +69,6 @@ RUN apt install -y unzip curl && \
 # Link matterport and gibson models to mounted docker volume
 RUN ln -s /root/scene_datasets/mp3d /root/habitat-lab/data/scene_datasets \
 	&& ln -s /root/scene_datasets/gibson /root/habitat-lab/data/scene_datasets
-intnav_gibson
 
 # Dev tools
 RUN pip3 install pre-commit && cd /root/vnav && pre-commit && pre-commit autoupdate && pre-commit install
