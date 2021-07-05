@@ -1,5 +1,5 @@
 # Graph Convolution Memory for Reinforcement Learning
-This is the code used for the paper [Graph Convolutional Memory for Reinforcement Learning](https://arxiv.org/abs/2106.14117). This repo is intended to aid in reproducability of the paper. If you are interested in using graph convolutional memory in your own project, I suggest you use my `graph-conv-memory` library available [here](https://github.com/smorad/gcm).  
+This is the code used for the paper [Graph Convolutional Memory for Reinforcement Learning](https://arxiv.org/abs/2106.14117). This repo is intended to aid in reproducability of the paper. If you are interested in using graph convolutional memory in your own project, I suggest you use my `graph-conv-memory` library available [here](https://github.com/smorad/graph-conv-memory).  
 
 ## Description
 Graph convolutional memory (GCM) is graph-structured memory that may be applied to reinforcement learning to solve POMDPs, replacing LSTMs or attention mechanisms.
